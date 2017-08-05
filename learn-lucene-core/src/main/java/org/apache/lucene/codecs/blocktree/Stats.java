@@ -28,8 +28,6 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
 
 /**
- * BlockTree statistics for a single field 
- * returned by {@link FieldReader#getStats()}.
  *
  * 单Field的BlockTree统计信息。
  * {@link FieldReader#getStats()}返回该信息。
@@ -37,67 +35,58 @@ import org.apache.lucene.util.IOUtils;
  * @lucene.internal
  */
 public class Stats {
-  /** Byte size of the index. */
   /** 索引的字节数. */
   public long indexNumBytes;
 
-  /** Total number of terms in the field. */
   /** Field中词项的总数. */
   public long totalTermCount;
 
-  /** Total number of bytes (sum of term lengths) across all terms in the field. */
   /** Field中所有词项的字节总数(词项的长度之和). */
   public long totalTermBytes;
 
   // TODO: add total auto-prefix term count
 
-  /** The number of normal (non-floor) blocks in the terms file. */
-  /** The number of normal (non-floor) blocks in the terms file. */
+  /** 词项文件中标准块（non-floor）的数量 */
   public int nonFloorBlockCount;
 
-  /** The number of floor blocks (meta-blocks larger than the
-   *  allowed {@code maxItemsPerBlock}) in the terms file. */
+  /**
+   *  词项文件中，floor blocks的数量(元块大于{@code maxItemsPerBlock})。*/
   public int floorBlockCount;
     
-  /** The number of sub-blocks within the floor blocks. */
+  /** floor blocks 内部的子块数量. */
   public int floorSubBlockCount;
 
-  /** The number of "internal" blocks (that have both
-   *  terms and sub-blocks). */
+  /**  "internal" blocks 的数量(同时具有 terms 和sub-blocks). */
   public int mixedBlockCount;
 
-  /** The number of "leaf" blocks (blocks that have only
-   *  terms). */
+  /** 叶子块的数量 (仅具有词项). */
   public int termsOnlyBlockCount;
 
-  /** The number of "internal" blocks that do not contain
-   *  terms (have only sub-blocks). */
+  /** 仅具有sub-blocks（不含有词项）的 "internal" blocks 的数量. */
   public int subBlocksOnlyBlockCount;
 
-  /** Total number of blocks. */
+  /** 块总数. */
   public int totalBlockCount;
 
-  /** Number of blocks at each prefix depth. */
+  /** 每个前缀深度中的块数量 */
   public int[] blockCountByPrefixLen = new int[10];
   private int startBlockCount;
   private int endBlockCount;
 
   /** Total number of bytes used to store term suffixes. */
+  /** 存储词项后缀所需要的字节总数。 */
   public long totalBlockSuffixBytes;
 
-  /** Total number of bytes used to store term stats (not
-   *  including what the {@link PostingsReaderBase}
-   *  stores. */
+  /** 用于存储词项统计信息所需要的字节总数（不包含{@link PostingsReaderBase}存储的内容） */
   public long totalBlockStatsBytes;
 
-  /** Total bytes stored by the {@link PostingsReaderBase},
-   *  plus the other few vInts stored in the frame. */
+  /** {@link PostingsReaderBase}存储的字节总数,扩展存储在框架中的另外一些vInts */
   public long totalBlockOtherBytes;
 
-  /** Segment name. */
+  /** 段名称. */
   public final String segment;
 
-  /** Field name. */
+  /** Field 名称. */
   public final String field;
 
   Stats(String segment, String field) {

@@ -25,7 +25,7 @@ import org.apache.lucene.util.InfoStream;
 import org.apache.lucene.util.MutableBits;
 
 /**
- * Holder class for common parameters used during write.
+ * 封装参数：写入过程中的常用参数
  * @lucene.experimental
  */
 public class SegmentWriteState {
