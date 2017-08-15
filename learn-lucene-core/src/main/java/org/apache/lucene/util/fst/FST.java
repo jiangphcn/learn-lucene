@@ -46,12 +46,12 @@ import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.packed.GrowableWriter;
 import org.apache.lucene.util.packed.PackedInts;
 
-// TODO: break this into WritableFST and ReadOnlyFST.. then
+// TODO: 该类可以拆分为WritableFST 和 ReadOnlyFST.. 然后
 // we can have subclasses of ReadOnlyFST to handle the
 // different byte[] level encodings (packed or
 // not)... and things like nodeCount, arcCount are read only
 
-// TODO: if FST is pure prefix trie we can do a more compact
+// TODO: 如果是纯粹的前缀特里树，我们可以进一步压缩
 // job, ie, once we are at a 'suffix only', just store the
 // completion labels as a string not as a series of arcs.
 
@@ -59,13 +59,14 @@ import org.apache.lucene.util.packed.PackedInts;
 // dead-end state (NON_FINAL_END_NODE=0), the layers above
 // (FSTEnum, Util) have problems with this!!
 
-/** Represents an finite state machine (FST), using a
- *  compact byte[] format.
- *  <p> The format is similar to what's used by Morfologik
+/**
+ *  采用压缩byte数组的格式，实现的有限状态机.
+ *  <p>类似Morfologik使用的格式
  *  (http://sourceforge.net/projects/morfologik).
- *  
- *  <p> See the {@link org.apache.lucene.util.fst package
- *      documentation} for some simple examples.
+ *
+ *  <p> 简单的实例，请参考{@link org.apache.lucene.util.fst package
+ *      documentation}
+ *
  *
  * @lucene.experimental
  */
@@ -74,8 +75,9 @@ public final class FST<T> implements Accountable {
   private static final long BASE_RAM_BYTES_USED = RamUsageEstimator.shallowSizeOfInstance(FST.class);
   private static final long ARC_SHALLOW_RAM_BYTES_USED = RamUsageEstimator.shallowSizeOfInstance(Arc.class);
 
-  /** Specifies allowed range of each int input label for
-   *  this FST. */
+  /**
+   * 为FST指定int输入符号的范围
+   */
   public static enum INPUT_TYPE {BYTE1, BYTE2, BYTE4};
 
   static final int BIT_FINAL_ARC = 1 << 0;
@@ -85,7 +87,7 @@ public final class FST<T> implements Accountable {
   // TODO: we can free up a bit if we can nuke this:
   static final int BIT_STOP_NODE = 1 << 3;
 
-  /** This flag is set if the arc has an output. */
+  /** 如果弧线有输出，则设置该标记 */
   public static final int BIT_ARC_HAS_OUTPUT = 1 << 4;
 
   static final int BIT_ARC_HAS_FINAL_OUTPUT = 1 << 5;
@@ -117,7 +119,7 @@ public final class FST<T> implements Accountable {
    */
   static final int FIXED_ARRAY_NUM_ARCS_DEEP = 10;
 
-  // Increment version to change it
+  // 通过增长版本号以改变它
   private static final String FILE_FORMAT_NAME = "FST";
   private static final int VERSION_START = 0;
 
@@ -152,13 +154,11 @@ public final class FST<T> implements Accountable {
 
   public final INPUT_TYPE inputType;
 
-  // if non-null, this FST accepts the empty string and
-  // produces this output
+  //如果非空，当接收到空字符串时，会产生该输出。
   T emptyOutput;
 
-  /** A {@link BytesStore}, used during building, or during reading when
-   *  the FST is very large (more than 1 GB).  If the FST is less than 1
-   *  GB then bytesArray is set instead. */
+  /** {@link BytesStore},构建过程中使用，或者读取的FST非常大(超过1GB).
+   * 如果FST小于1GB，那么采用byte数组。*/
   final BytesStore bytes;
 
   /** Used at read time when the FST fits into a single byte[]. */
@@ -173,7 +173,7 @@ public final class FST<T> implements Accountable {
 
   private Arc<T> cachedRootArcs[];
 
-  /** Represents a single arc. */
+  /** 弧线类 */
   public static final class Arc<T> {
     public int label;
     public T output;
@@ -1355,126 +1355,17 @@ public final class FST<T> implements Accountable {
     }
   }
 
-  /** Reads bytes stored in an FST. */
+  /** 读取存储在FST内的字节. */
   public static abstract class BytesReader extends DataInput {
-    /** Get current read position. */
+    /** 获取当前读取的位置 . */
     public abstract long getPosition();
 
-    /** Set current read position. */
+    /** 设置当前读取的位置. */
     public abstract void setPosition(long pos);
 
-    /** Returns true if this reader uses reversed bytes
-     *  under-the-hood. */
+    /** 如果底层使用倒置字节，返回true */
     public abstract boolean reversed();
   }
-
-  /*
-  public void countSingleChains() throws IOException {
-    // TODO: must assert this FST was built with
-    // "willRewrite"
-
-    final List<ArcAndState<T>> queue = new ArrayList<>();
-
-    // TODO: use bitset to not revisit nodes already
-    // visited
-
-    FixedBitSet seen = new FixedBitSet(1+nodeCount);
-    int saved = 0;
-
-    queue.add(new ArcAndState<T>(getFirstArc(new Arc<T>()), new IntsRef()));
-    Arc<T> scratchArc = new Arc<>();
-    while(queue.size() > 0) {
-      //System.out.println("cycle size=" + queue.size());
-      //for(ArcAndState<T> ent : queue) {
-      //  System.out.println("  " + Util.toBytesRef(ent.chain, new BytesRef()));
-      //  }
-      final ArcAndState<T> arcAndState = queue.get(queue.size()-1);
-      seen.set(arcAndState.arc.node);
-      final BytesRef br = Util.toBytesRef(arcAndState.chain, new BytesRef());
-      if (br.length > 0 && br.bytes[br.length-1] == -1) {
-        br.length--;
-      }
-      //System.out.println("  top node=" + arcAndState.arc.target + " chain=" + br.utf8ToString());
-      if (targetHasArcs(arcAndState.arc) && !seen.get(arcAndState.arc.target)) {
-        // push
-        readFirstTargetArc(arcAndState.arc, scratchArc);
-        //System.out.println("  push label=" + (char) scratchArc.label);
-        //System.out.println("    tonode=" + scratchArc.target + " last?=" + scratchArc.isLast());
-        
-        final IntsRef chain = IntsRef.deepCopyOf(arcAndState.chain);
-        chain.grow(1+chain.length);
-        // TODO
-        //assert scratchArc.label != END_LABEL;
-        chain.ints[chain.length] = scratchArc.label;
-        chain.length++;
-
-        if (scratchArc.isLast()) {
-          if (scratchArc.target != -1 && inCounts[scratchArc.target] == 1) {
-            //System.out.println("    append");
-          } else {
-            if (arcAndState.chain.length > 1) {
-              saved += chain.length-2;
-              try {
-                System.out.println("chain: " + Util.toBytesRef(chain, new BytesRef()).utf8ToString());
-              } catch (AssertionError ae) {
-                System.out.println("chain: " + Util.toBytesRef(chain, new BytesRef()));
-              }
-            }
-            chain.length = 0;
-          }
-        } else {
-          //System.out.println("    reset");
-          if (arcAndState.chain.length > 1) {
-            saved += arcAndState.chain.length-2;
-            try {
-              System.out.println("chain: " + Util.toBytesRef(arcAndState.chain, new BytesRef()).utf8ToString());
-            } catch (AssertionError ae) {
-              System.out.println("chain: " + Util.toBytesRef(arcAndState.chain, new BytesRef()));
-            }
-          }
-          if (scratchArc.target != -1 && inCounts[scratchArc.target] != 1) {
-            chain.length = 0;
-          } else {
-            chain.ints[0] = scratchArc.label;
-            chain.length = 1;
-          }
-        }
-        // TODO: instead of new Arc() we can re-use from
-        // a by-depth array
-        queue.add(new ArcAndState<T>(new Arc<T>().copyFrom(scratchArc), chain));
-      } else if (!arcAndState.arc.isLast()) {
-        // next
-        readNextArc(arcAndState.arc);
-        //System.out.println("  next label=" + (char) arcAndState.arc.label + " len=" + arcAndState.chain.length);
-        if (arcAndState.chain.length != 0) {
-          arcAndState.chain.ints[arcAndState.chain.length-1] = arcAndState.arc.label;
-        }
-      } else {
-        if (arcAndState.chain.length > 1) {
-          saved += arcAndState.chain.length-2;
-          System.out.println("chain: " + Util.toBytesRef(arcAndState.chain, new BytesRef()).utf8ToString());
-        }
-        // pop
-        //System.out.println("  pop");
-        queue.remove(queue.size()-1);
-        while(queue.size() > 0 && queue.get(queue.size()-1).arc.isLast()) {
-          queue.remove(queue.size()-1);
-        }
-        if (queue.size() > 0) {
-          final ArcAndState<T> arcAndState2 = queue.get(queue.size()-1);
-          readNextArc(arcAndState2.arc);
-          //System.out.println("  read next=" + (char) arcAndState2.arc.label + " queue=" + queue.size());
-          assert arcAndState2.arc.label != END_LABEL;
-          if (arcAndState2.chain.length != 0) {
-            arcAndState2.chain.ints[arcAndState2.chain.length-1] = arcAndState2.arc.label;
-          }
-        }
-      }
-    }
-
-    System.out.println("TOT saved " + saved);
-  }
- */
 
   // Creates a packed FST
   private FST(INPUT_TYPE inputType, Outputs<T> outputs, int bytesPageBits) {

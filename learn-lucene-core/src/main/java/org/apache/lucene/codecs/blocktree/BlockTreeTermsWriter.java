@@ -879,11 +879,11 @@ public final class BlockTreeTermsWriter extends FieldsConsumer {
       }
     }
 
-    /** Pushes the new term to the top of the stack, and writes new blocks. */
+    /** 将新的词项放入栈首，并写入新块. */
     private void pushTerm(BytesRef text) throws IOException {
       int limit = Math.min(lastTerm.length(), text.length);
 
-      // Find common prefix between last term and current term:
+      // 寻找最后词项和当前词项之间的通用前缀。
       int pos = 0;
       while (pos < limit && lastTerm.byteAt(pos) == text.bytes[text.offset+pos]) {
         pos++;
@@ -891,11 +891,11 @@ public final class BlockTreeTermsWriter extends FieldsConsumer {
 
       // if (DEBUG) System.out.println("  shared=" + pos + "  lastTerm.length=" + lastTerm.length);
 
-      // Close the "abandoned" suffix now:
+      // 现在关闭"过时的"后缀
       for(int i=lastTerm.length()-1;i>=pos;i--) {
 
-        // How many items on top of the stack share the current suffix
-        // we are closing:
+        // 栈首有多少条目共享当前后缀
+        //我们关闭
         int prefixTopSize = pending.size() - prefixStarts[i];
         if (prefixTopSize >= minItemsInBlock) {
           // if (DEBUG) System.out.println("pushTerm i=" + i + " prefixTopSize=" + prefixTopSize + " minItemsInBlock=" + minItemsInBlock);

@@ -21,20 +21,21 @@ import java.util.Collection;
 import java.util.Collections;
 
 /**
- * An object whose RAM usage can be computed.
+ * 可以计算对象占用内存(RAM)大小
  *
  * @lucene.internal
  */
 public interface Accountable {
 
   /**
-   * Return the memory usage of this object in bytes. Negative values are illegal.
+   * 返回该对象占用内存的字节数.负值是非法的.
    */
   long ramBytesUsed();
 
   /**
-   * Returns nested resources of this class. 
-   * The result should be a point-in-time snapshot (to avoid race conditions).
+   * 返回内嵌资源.
+   * 该结果应该是某一时间点的快照(为了避免竞态条件[Race Conditions])
+   *
    * @see Accountables
    */
   default Collection<Accountable> getChildResources() {
