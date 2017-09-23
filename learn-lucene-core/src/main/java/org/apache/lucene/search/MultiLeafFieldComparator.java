@@ -39,7 +39,7 @@ final class MultiLeafFieldComparator implements LeafFieldComparator {
   }
 
   @Override
-  public void setBottom(int slot) {
+  public void setBottom(int slot) throws IOException {
     for (LeafFieldComparator comparator : comparators) {
       comparator.setBottom(slot);
     }

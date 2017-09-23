@@ -18,11 +18,11 @@ package org.apache.lucene.index;
 
 
 import java.io.IOException;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
 
 import org.apache.lucene.codecs.DocValuesConsumer;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.SortField;
+import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
@@ -30,9 +30,10 @@ import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.Counter;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.PagedBytes;
-import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.packed.PackedInts;
 import org.apache.lucene.util.packed.PackedLongValues;
+
+import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
 /** Buffers up pending byte[] per doc, then flushes when
  *  segment flushes. */
@@ -49,10 +50,11 @@ class BinaryDocValuesWriter extends DocValuesWriter {
 
   private final Counter iwBytesUsed;
   private final PackedLongValues.Builder lengths;
-  private FixedBitSet docsWithField;
+  private DocsWithFieldSet docsWithField;
   private final FieldInfo fieldInfo;
-  private int addedValues;
   private long bytesUsed;
+  private int lastDocID = -1;
+  private int maxLength = 0;
 
   public BinaryDocValuesWriter(FieldInfo fieldInfo, Counter iwBytesUsed) {
     this.fieldInfo = fieldInfo;
@@ -60,13 +62,13 @@ class BinaryDocValuesWriter extends DocValuesWriter {
     this.bytesOut = bytes.getDataOutput();
     this.lengths = PackedLongValues.deltaPackedBuilder(PackedInts.COMPACT);
     this.iwBytesUsed = iwBytesUsed;
-    this.docsWithField = new FixedBitSet(64);
-    this.bytesUsed = docsWithFieldBytesUsed();
+    this.docsWithField = new DocsWithFieldSet();
+    this.bytesUsed = lengths.ramBytesUsed() + docsWithField.ramBytesUsed();
     iwBytesUsed.addAndGet(bytesUsed);
   }
 
   public void addValue(int docID, BytesRef value) {
-    if (docID < addedValues) {
+    if (docID <= lastDocID) {
       throw new IllegalArgumentException("DocValuesField \"" + fieldInfo.name + "\" appears more than once in this document (only one value is allowed per field)");
     }
     if (value == null) {
@@ -76,12 +78,7 @@ class BinaryDocValuesWriter extends DocValuesWriter {
       throw new IllegalArgumentException("DocValuesField \"" + fieldInfo.name + "\" is too large, must be <= " + MAX_LENGTH);
     }
 
-    // Fill in any holes:
-    while(addedValues < docID) {
-      addedValues++;
-      lengths.add(0);
-    }
-    addedValues++;
+    maxLength = Math.max(value.length, maxLength);
     lengths.add(value.length);
     try {
       bytesOut.writeBytes(value.bytes, value.offset, value.length);
@@ -89,25 +86,35 @@ class BinaryDocValuesWriter extends DocValuesWriter {
       // Should never happen!
       throw new RuntimeException(ioe);
     }
-    docsWithField = FixedBitSet.ensureCapacity(docsWithField, docID);
-    docsWithField.set(docID);
+    docsWithField.add(docID);
     updateBytesUsed();
-  }
-  
-  private long docsWithFieldBytesUsed() {
-    // size of the long[] + some overhead
-    return RamUsageEstimator.sizeOf(docsWithField.getBits()) + 64;
+
+    lastDocID = docID;
   }
 
   private void updateBytesUsed() {
-    final long newBytesUsed = lengths.ramBytesUsed() + bytes.ramBytesUsed() + docsWithFieldBytesUsed();
+    final long newBytesUsed = lengths.ramBytesUsed() + bytes.ramBytesUsed() + docsWithField.ramBytesUsed();
     iwBytesUsed.addAndGet(newBytesUsed - bytesUsed);
     bytesUsed = newBytesUsed;
   }
 
   @Override
   public void finish(int maxDoc) {
+  }
 
+  private SortingLeafReader.CachedBinaryDVs sortDocValues(int maxDoc, Sorter.DocMap sortMap, BinaryDocValues oldValues) throws IOException {
+    FixedBitSet docsWithField = new FixedBitSet(maxDoc);
+    BytesRef[] values = new BytesRef[maxDoc];
+    while (true) {
+      int docID = oldValues.nextDoc();
+      if (docID == NO_MORE_DOCS) {
+        break;
+      }
+      int newDocID = sortMap.oldToNew(docID);
+      docsWithField.set(newDocID);
+      values[newDocID] = BytesRef.deepCopyOf(oldValues.binaryValue());
+    }
+    return new SortingLeafReader.CachedBinaryDVs(values, docsWithField);
   }
 
   @Override
@@ -117,139 +124,80 @@ class BinaryDocValuesWriter extends DocValuesWriter {
 
   @Override
   public void flush(SegmentWriteState state, Sorter.DocMap sortMap, DocValuesConsumer dvConsumer) throws IOException {
-    final int maxDoc = state.segmentInfo.maxDoc();
     bytes.freeze(false);
     final PackedLongValues lengths = this.lengths.build();
-
-    final long[] starts;
+    final SortingLeafReader.CachedBinaryDVs sorted;
     if (sortMap != null) {
-      starts = new long[maxDoc];
-      PackedLongValues.Iterator it = lengths.iterator();
-      long ptr = 0;
-      int doc = 0;
-      while (it.hasNext()) {
-        starts[doc++] = ptr;
-        ptr += it.next();
-      }
+      sorted = sortDocValues(state.segmentInfo.maxDoc(), sortMap,
+          new BufferedBinaryDocValues(lengths, maxLength, bytes.getDataInput(), docsWithField.iterator()));
     } else {
-      starts = null;
+      sorted = null;
     }
-
     dvConsumer.addBinaryField(fieldInfo,
-                              new Iterable<BytesRef>() {
+                              new EmptyDocValuesProducer() {
                                 @Override
-                                public Iterator<BytesRef> iterator() {
-                                  if (sortMap == null) {
-                                    return new BytesIterator(maxDoc, lengths);
+                                public BinaryDocValues getBinary(FieldInfo fieldInfoIn) {
+                                  if (fieldInfoIn != fieldInfo) {
+                                    throw new IllegalArgumentException("wrong fieldInfo");
+                                  }
+                                  if (sorted == null) {
+                                    return new BufferedBinaryDocValues(lengths, maxLength, bytes.getDataInput(), docsWithField.iterator());
                                   } else {
-                                    return new SortingBytesIterator(maxDoc, lengths, sortMap, starts);
+                                    return new SortingLeafReader.SortingBinaryDocValues(sorted);
                                   }
                                 }
                               });
   }
 
   // iterates over the values we have in ram
-  private class BytesIterator implements Iterator<BytesRef> {
-    final BytesRefBuilder value = new BytesRefBuilder();
+  private static class BufferedBinaryDocValues extends BinaryDocValues {
+    final BytesRefBuilder value;
     final PackedLongValues.Iterator lengthsIterator;
-    final PagedBytes.PagedBytesDataInput bytesIterator = bytes.getDataInput();
-    final int size = (int) lengths.size();
-    final int maxDoc;
-    int upto;
+    final DocIdSetIterator docsWithField;
+    final DataInput bytesIterator;
     
-    BytesIterator(int maxDoc, PackedLongValues lengths) {
-      this.maxDoc = maxDoc;
+    BufferedBinaryDocValues(PackedLongValues lengths, int maxLength, DataInput bytesIterator, DocIdSetIterator docsWithFields) {
+      this.value = new BytesRefBuilder();
+      this.value.grow(maxLength);
       this.lengthsIterator = lengths.iterator();
-    }
-    
-    @Override
-    public boolean hasNext() {
-      return upto < maxDoc;
+      this.bytesIterator = bytesIterator;
+      this.docsWithField = docsWithFields;
     }
 
     @Override
-    public BytesRef next() {
-      if (!hasNext()) {
-        throw new NoSuchElementException();
-      }
-      final BytesRef v;
-      if (upto < size) {
-        final int length = (int) lengthsIterator.next();
-        value.grow(length);
+    public int docID() {
+      return docsWithField.docID();
+    }
+
+    @Override
+    public int nextDoc() throws IOException {
+      int docID = docsWithField.nextDoc();
+      if (docID != NO_MORE_DOCS) {
+        int length = Math.toIntExact(lengthsIterator.next());
         value.setLength(length);
-        bytesIterator.readBytes(value.bytes(), 0, value.length());
-        if (docsWithField.get(upto)) {
-          v = value.get();
-        } else {
-          v = null;
-        }
-      } else {
-        v = null;
+        bytesIterator.readBytes(value.bytes(), 0, length);
       }
-      upto++;
-      return v;
+      return docID;
     }
 
     @Override
-    public void remove() {
+    public int advance(int target) {
       throw new UnsupportedOperationException();
     }
-  }
-
-  // sort the values we have in ram according to the provided sort map
-  private class SortingBytesIterator implements Iterator<BytesRef> {
-    final BytesRefBuilder value = new BytesRefBuilder();
-    final PackedLongValues values;
-    final PackedLongValues.Iterator lengthsIterator;
-    final long[] starts;
-    final PagedBytes.PagedBytesDataInput bytesIterator = bytes.getDataInput();
-    final Sorter.DocMap sortMap;
-    final int size = (int) lengths.size();
-    final int maxDoc;
-    int upto;
-
-    SortingBytesIterator(int maxDoc, PackedLongValues lengths, Sorter.DocMap sortMap, long[] starts) {
-      this.maxDoc = maxDoc;
-      this.lengthsIterator = lengths.iterator();
-      this.values = lengths;
-      this.sortMap = sortMap;
-      this.starts = starts;
-    }
 
     @Override
-    public boolean hasNext() {
-      return upto < maxDoc;
-    }
-
-    @Override
-    public BytesRef next() {
-      if (!hasNext()) {
-        throw new NoSuchElementException();
-      }
-      final BytesRef v;
-      int oldID = sortMap.newToOld(upto);
-      if (oldID < values.size()) {
-        int length = (int) values.get(oldID);
-        long pos = starts[oldID];
-        bytesIterator.setPosition(pos);
-        value.grow(length);
-        value.setLength(length);
-        bytesIterator.readBytes(value.bytes(), 0, value.length());
-        if (docsWithField.get(oldID)) {
-          v = value.get();
-        } else {
-          v = null;
-        }
-      } else {
-        v = null;
-      }
-      upto++;
-      return v;
-    }
-
-    @Override
-    public void remove() {
+    public boolean advanceExact(int target) throws IOException {
       throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long cost() {
+      return docsWithField.cost();
+    }
+
+    @Override
+    public BytesRef binaryValue() {
+      return value.get();
     }
   }
 }

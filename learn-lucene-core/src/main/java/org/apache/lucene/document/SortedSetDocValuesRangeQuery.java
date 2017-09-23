@@ -27,8 +27,7 @@ import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.search.ConstantScoreScorer;
 import org.apache.lucene.search.ConstantScoreWeight;
-import org.apache.lucene.search.DocIdSetIterator;
-import org.apache.lucene.search.FieldValueQuery;
+import org.apache.lucene.search.DocValuesFieldExistsQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Scorer;
@@ -96,7 +95,7 @@ abstract class SortedSetDocValuesRangeQuery extends Query {
   @Override
   public Query rewrite(IndexReader reader) throws IOException {
     if (lowerValue == null && upperValue == null) {
-      return new FieldValueQuery(field);
+      return new DocValuesFieldExistsQuery(field);
     }
     return super.rewrite(reader);
   }
@@ -104,8 +103,8 @@ abstract class SortedSetDocValuesRangeQuery extends Query {
   abstract SortedSetDocValues getValues(LeafReader reader, String field) throws IOException;
 
   @Override
-  public Weight createWeight(IndexSearcher searcher, boolean needsScores) throws IOException {
-    return new ConstantScoreWeight(this) {
+  public Weight createWeight(IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
+    return new ConstantScoreWeight(this, boost) {
       @Override
       public Scorer scorer(LeafReaderContext context) throws IOException {
         SortedSetDocValues values = getValues(context.reader(), field);
@@ -146,13 +145,12 @@ abstract class SortedSetDocValuesRangeQuery extends Query {
         }
 
         final SortedDocValues singleton = DocValues.unwrapSingleton(values);
-        final DocIdSetIterator approximation = DocIdSetIterator.all(context.reader().maxDoc());
         final TwoPhaseIterator iterator;
         if (singleton != null) {
-          iterator = new TwoPhaseIterator(approximation) {
+          iterator = new TwoPhaseIterator(singleton) {
             @Override
             public boolean matches() throws IOException {
-              final long ord = singleton.getOrd(approximation.docID());
+              final long ord = singleton.ordValue();
               return ord >= minOrd && ord <= maxOrd;
             }
 
@@ -162,10 +160,9 @@ abstract class SortedSetDocValuesRangeQuery extends Query {
             }
           };
         } else {
-          iterator = new TwoPhaseIterator(approximation) {
+          iterator = new TwoPhaseIterator(values) {
             @Override
             public boolean matches() throws IOException {
-              values.setDocument(approximation.docID());
               for (long ord = values.nextOrd(); ord != SortedSetDocValues.NO_MORE_ORDS; ord = values.nextOrd()) {
                 if (ord < minOrd) {
                   continue;

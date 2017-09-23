@@ -95,7 +95,7 @@ final class DefaultIndexingChain extends DocConsumer {
       return null;
     }
 
-    final List<Sorter.DocComparator> comparators = new ArrayList<>();
+    List<Sorter.DocComparator> comparators = new ArrayList<>();
     for (int i = 0; i < indexSort.getSort().length; i++) {
       SortField sortField = indexSort.getSort()[i];
       PerField perField = getPerField(sortField.getField());
@@ -109,20 +109,9 @@ final class DefaultIndexingChain extends DocConsumer {
         // safe to ignore, sort field with no values or already seen before
       }
     }
-    Sorter.DocComparator docComparator = new Sorter.DocComparator() {
-      @Override
-      public int compare(int docID1, int docID2) {
-        for (Sorter.DocComparator comparator : comparators) {
-          int comp = comparator.compare(docID1, docID2);
-          if (comp != 0) {
-            return comp;
-          }
-        }
-        return Integer.compare(docID1, docID2); // docid order tiebreak
-      }
-    };
-    // returns null if documents are already sorted
-    return Sorter.sort(state.segmentInfo.maxDoc(), docComparator);
+    Sorter sorter = new Sorter(indexSort);
+    // returns null if the documents are already sorted
+    return sorter.sort(state.segmentInfo.maxDoc(), comparators.toArray(new Sorter.DocComparator[comparators.size()]));
   }
 
   @Override
@@ -436,12 +425,6 @@ final class DefaultIndexingChain extends DocConsumer {
 
     // Invert indexed fields:
     if (fieldType.indexOptions() != IndexOptions.NONE) {
-      
-      // if the field omits norms, the boost cannot be indexed.
-      if (fieldType.omitNorms() && field.boost() != 1.0f) {
-        throw new UnsupportedOperationException("You cannot set an index-time boost: norms are omitted for field '" + field.name() + "'");
-      }
-      
       fp = getOrAddField(fieldName, fieldType, true);
       boolean first = fp.fieldGen != fieldGen;
       fp.invert(field, first);
@@ -619,7 +602,7 @@ final class DefaultIndexingChain extends DocConsumer {
       // PerField.invert to allow for later downgrading of the index options:
       fi.setIndexOptions(fieldType.indexOptions());
       
-      fp = new PerField(fi, invert);
+      fp = new PerField(docWriter.getIndexCreatedVersionMajor(), fi, invert);
       fp.next = fieldHash[hashPos];
       fieldHash[hashPos] = fp;
       totalFieldCount++;
@@ -649,6 +632,7 @@ final class DefaultIndexingChain extends DocConsumer {
   /** NOTE: not static: accesses at least docState, termsHash. */
   private final class PerField implements Comparable<PerField> {
 
+    final int indexCreatedVersionMajor;
     final FieldInfo fieldInfo;
     final Similarity similarity;
 
@@ -675,7 +659,8 @@ final class DefaultIndexingChain extends DocConsumer {
     // reused
     TokenStream tokenStream;
 
-    public PerField(FieldInfo fieldInfo, boolean invert) {
+    public PerField(int indexCreatedVersionMajor, FieldInfo fieldInfo, boolean invert) {
+      this.indexCreatedVersionMajor = indexCreatedVersionMajor;
       this.fieldInfo = fieldInfo;
       similarity = docState.similarity;
       if (invert) {
@@ -684,7 +669,7 @@ final class DefaultIndexingChain extends DocConsumer {
     }
 
     void setInvertState() {
-      invertState = new FieldInvertState(fieldInfo.name);
+      invertState = new FieldInvertState(indexCreatedVersionMajor, fieldInfo.name);
       termsHashPerField = termsHash.addField(invertState, fieldInfo);
       if (fieldInfo.omitsNorms() == false) {
         assert norms == null;
@@ -699,8 +684,17 @@ final class DefaultIndexingChain extends DocConsumer {
     }
 
     public void finish() throws IOException {
-      if (fieldInfo.omitsNorms() == false && invertState.length != 0) {
-        norms.addValue(docState.docID, similarity.computeNorm(invertState));
+      if (fieldInfo.omitsNorms() == false) {
+        long normValue;
+        if (invertState.length == 0) {
+          // the field exists in this document, but it did not have
+          // any indexed tokens, so we assign a default value of zero
+          // to the norm
+          normValue = 0;
+        } else {
+          normValue = similarity.computeNorm(invertState);
+        }
+        norms.addValue(docState.docID, normValue);
       }
 
       termsHashPerField.finish();
@@ -727,10 +721,6 @@ final class DefaultIndexingChain extends DocConsumer {
 
       final boolean analyzed = fieldType.tokenized() && docState.analyzer != null;
         
-      // only bother checking offsets if something will consume them.
-      // TODO: after we fix analyzers, also check if termVectorOffsets will be indexed.
-      final boolean checkOffsets = indexOptions == IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS;
-
       /*
        * To assist people in tracking down problems in analysis components, we wish to write the field name to the infostream
        * when we fail. We expect some caller to eventually deal with the real exception, so we don't want any 'catch' clauses,
@@ -770,20 +760,20 @@ final class DefaultIndexingChain extends DocConsumer {
             invertState.numOverlap++;
           }
               
-          if (checkOffsets) {
-            int startOffset = invertState.offset + invertState.offsetAttribute.startOffset();
-            int endOffset = invertState.offset + invertState.offsetAttribute.endOffset();
-            if (startOffset < invertState.lastStartOffset || endOffset < startOffset) {
-              throw new IllegalArgumentException("startOffset must be non-negative, and endOffset must be >= startOffset, and offsets must not go backwards "
-                                                 + "startOffset=" + startOffset + ",endOffset=" + endOffset + ",lastStartOffset=" + invertState.lastStartOffset + " for field '" + field.name() + "'");
-            }
-            invertState.lastStartOffset = startOffset;
+          int startOffset = invertState.offset + invertState.offsetAttribute.startOffset();
+          int endOffset = invertState.offset + invertState.offsetAttribute.endOffset();
+          if (startOffset < invertState.lastStartOffset || endOffset < startOffset) {
+            throw new IllegalArgumentException("startOffset must be non-negative, and endOffset must be >= startOffset, and offsets must not go backwards "
+                                               + "startOffset=" + startOffset + ",endOffset=" + endOffset + ",lastStartOffset=" + invertState.lastStartOffset + " for field '" + field.name() + "'");
           }
+          invertState.lastStartOffset = startOffset;
 
-          invertState.length++;
-          if (invertState.length < 0) {
-            throw new IllegalArgumentException("too many tokens in field '" + field.name() + "'");
+          try {
+            invertState.length = Math.addExact(invertState.length, invertState.termFreqAttribute.getTermFrequency());
+          } catch (ArithmeticException ae) {
+            throw new IllegalArgumentException("too many tokens for field \"" + field.name() + "\"");
           }
+          
           //System.out.println("  term=" + invertState.termAttribute);
 
           // If we hit an exception in here, we abort
@@ -829,8 +819,6 @@ final class DefaultIndexingChain extends DocConsumer {
         invertState.position += docState.analyzer.getPositionIncrementGap(fieldInfo.name);
         invertState.offset += docState.analyzer.getOffsetGap(fieldInfo.name);
       }
-
-      invertState.boost *= field.boost();
     }
   }
 }

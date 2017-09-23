@@ -27,14 +27,12 @@ import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.search.ConstantScoreScorer;
 import org.apache.lucene.search.ConstantScoreWeight;
-import org.apache.lucene.search.DocIdSetIterator;
-import org.apache.lucene.search.FieldValueQuery;
+import org.apache.lucene.search.DocValuesFieldExistsQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.TwoPhaseIterator;
 import org.apache.lucene.search.Weight;
-import org.apache.lucene.util.Bits;
 
 abstract class SortedNumericDocValuesRangeQuery extends Query {
 
@@ -86,7 +84,7 @@ abstract class SortedNumericDocValuesRangeQuery extends Query {
   @Override
   public Query rewrite(IndexReader reader) throws IOException {
     if (lowerValue == Long.MIN_VALUE && upperValue == Long.MAX_VALUE) {
-      return new FieldValueQuery(field);
+      return new DocValuesFieldExistsQuery(field);
     }
     return super.rewrite(reader);
   }
@@ -94,8 +92,8 @@ abstract class SortedNumericDocValuesRangeQuery extends Query {
   abstract SortedNumericDocValues getValues(LeafReader reader, String field) throws IOException;
 
   @Override
-  public Weight createWeight(IndexSearcher searcher, boolean needsScores) throws IOException {
-    return new ConstantScoreWeight(this) {
+  public Weight createWeight(IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
+    return new ConstantScoreWeight(this, boost) {
       @Override
       public Scorer scorer(LeafReaderContext context) throws IOException {
         SortedNumericDocValues values = getValues(context.reader(), field);
@@ -104,15 +102,12 @@ abstract class SortedNumericDocValuesRangeQuery extends Query {
         }
         final NumericDocValues singleton = DocValues.unwrapSingleton(values);
         final TwoPhaseIterator iterator;
-        final DocIdSetIterator approximation = DocIdSetIterator.all(context.reader().maxDoc());
         if (singleton != null) {
-          final Bits docsWithField = DocValues.unwrapSingletonBits(values);
-          iterator = new TwoPhaseIterator(approximation) {
+          iterator = new TwoPhaseIterator(singleton) {
             @Override
             public boolean matches() throws IOException {
-              final long value = singleton.get(approximation.docID());
-              return (value != 0 || docsWithField == null || docsWithField.get(approximation.docID()))
-                  && value >= lowerValue && value <= upperValue;
+              final long value = singleton.longValue();
+              return value >= lowerValue && value <= upperValue;
             }
 
             @Override
@@ -121,12 +116,11 @@ abstract class SortedNumericDocValuesRangeQuery extends Query {
             }
           };
         } else {
-          iterator = new TwoPhaseIterator(approximation) {
+          iterator = new TwoPhaseIterator(values) {
             @Override
             public boolean matches() throws IOException {
-              values.setDocument(approximation.docID());
-              for (int i = 0, count = values.count(); i < count; ++i) {
-                final long value = values.valueAt(i);
+              for (int i = 0, count = values.docValueCount(); i < count; ++i) {
+                final long value = values.nextValue();
                 if (value < lowerValue) {
                   continue;
                 }

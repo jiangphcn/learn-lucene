@@ -20,16 +20,23 @@ package org.apache.lucene.search.similarities;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
 import org.apache.lucene.document.TextField;
+import org.apache.lucene.document.Field.Store;
+import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.FieldInvertState;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.RandomIndexWriter;
+import org.apache.lucene.index.SegmentInfos;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.index.TermContext;
 import org.apache.lucene.search.CollectionStatistics;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.IndexSearcher;
@@ -37,9 +44,13 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TermStatistics;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.search.similarities.Similarity.SimWeight;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.util.Version;
+
+import com.carrotsearch.randomizedtesting.generators.RandomPicks;
 
 /**
  * Tests the {@link SimilarityBase}-based Similarities. Contains unit tests and 
@@ -172,7 +183,7 @@ public class TestSimilarityBase extends LuceneTestCase {
   
   /** Creates the default statistics object that the specific tests modify. */
   private BasicStats createStats() {
-    BasicStats stats = new BasicStats("spoof");
+    BasicStats stats = new BasicStats("spoof", 1f);
     stats.setNumberOfDocuments(NUMBER_OF_DOCUMENTS);
     stats.setNumberOfFieldTokens(NUMBER_OF_FIELD_TOKENS);
     stats.setAvgFieldLength(AVG_FIELD_LENGTH);
@@ -197,9 +208,9 @@ public class TestSimilarityBase extends LuceneTestCase {
   private void unitTestCore(BasicStats stats, float freq, int docLen) {
     for (SimilarityBase sim : sims) {
       BasicStats realStats = (BasicStats) sim.computeWeight(
+          stats.getBoost(),
           toCollectionStats(stats), 
           toTermStats(stats));
-      realStats.normalize(1f, stats.getBoost());
       float score = sim.score(realStats, freq, docLen);
       float explScore = sim.explain(
           realStats, 1, Explanation.match(freq, "freq"), docLen).getValue();
@@ -530,9 +541,9 @@ public class TestSimilarityBase extends LuceneTestCase {
   private void correctnessTestCore(SimilarityBase sim, float gold) {
     BasicStats stats = createStats();
     BasicStats realStats = (BasicStats) sim.computeWeight(
+        stats.getBoost(),
         toCollectionStats(stats), 
         toTermStats(stats));
-    realStats.normalize(1f, stats.getBoost());
     float score = sim.score(realStats, FREQ, DOC_LEN);
     assertEquals(
         sim.toString() + " score not correct.", gold, score, FLOAT_EPSILON);
@@ -586,77 +597,44 @@ public class TestSimilarityBase extends LuceneTestCase {
   
   // LUCENE-5221
   public void testDiscountOverlapsBoost() throws IOException {
-    ClassicSimilarity expected = new ClassicSimilarity();
+    BM25Similarity expected = new BM25Similarity();
     SimilarityBase actual = new DFRSimilarity(new BasicModelIne(), new AfterEffectB(), new NormalizationH2());
     expected.setDiscountOverlaps(false);
     actual.setDiscountOverlaps(false);
-    FieldInvertState state = new FieldInvertState("foo");
+    FieldInvertState state = new FieldInvertState(Version.LATEST.major, "foo");
     state.setLength(5);
     state.setNumOverlap(2);
-    state.setBoost(3);
     assertEquals(expected.computeNorm(state), actual.computeNorm(state));
     expected.setDiscountOverlaps(true);
     actual.setDiscountOverlaps(true);
     assertEquals(expected.computeNorm(state), actual.computeNorm(state));
   }
-  
-  public void testSaneNormValues() {
-    for (SimilarityBase sim : sims) {
-      for (int i = 0; i < 256; i++) {
-        float len = sim.decodeNormValue((byte) i);
-        assertFalse("negative len: " + len + ", byte=" + i + ", sim=" + sim, len < 0.0f);
-        assertFalse("inf len: " + len + ", byte=" + i + ", sim=" + sim, Float.isInfinite(len));
-        assertFalse("nan len for byte=" + i + ", sim=" + sim, Float.isNaN(len));
-        if (i > 0) {
-          assertTrue("len is not decreasing: " + len + ",byte=" + i + ",sim=" + sim, len < sim.decodeNormValue((byte)(i-1)));
-        }
-      }
-    }
-  }
-  
-  /**
-   * make sure the similarity does not go crazy when tested against all possible norm values.
-   */
-  public void testCrazyIndexTimeBoosts() throws Exception {
-    long avgLength = 750;
-    long docCount = 500000;
-    long numTokens = docCount * avgLength;
-   
-    CollectionStatistics collectionStats = new CollectionStatistics("body", docCount, docCount, numTokens, numTokens);
-    
-    long docFreq = 2000;
-    long totalTermFreq = 2000 * avgLength;
-    
-    TermStatistics termStats = new TermStatistics(new BytesRef("term"), docFreq, totalTermFreq);
-    
-    for (SimilarityBase sim : sims) {
-      if (sim instanceof IBSimilarity) {
-        if (((IBSimilarity)sim).getDistribution() instanceof DistributionSPL) {
-          // score goes infinite for tiny doc lengths and negative for huge doc lengths
-          // TODO: fix this
-          continue;
-        }
-      } else if (sim instanceof DFRSimilarity) {
-        BasicModel model = ((DFRSimilarity)sim).getBasicModel();
-        if (model instanceof BasicModelD || model instanceof BasicModelP) {
-          // score goes NaN for tiny doc lengths
-          // TODO: fix this
-          continue;
-        } else if (model instanceof BasicModelBE) {
-          // score goes negative infinity for tiny doc lengths
-          // TODO: fix this
-          continue;
-        }
-      }
-      BasicStats stats = (BasicStats) sim.computeWeight(collectionStats, termStats);
-      for (float tf = 1.0f; tf <= 10.0f; tf += 1.0f) {
-        for (int i = 0; i < 256; i++) {
-          float len = sim.decodeNormValue((byte) i);
-          float score = sim.score(stats, tf, len);
-          assertFalse("negative score for " + sim + ", len=" + len + ",score=" + score, score < 0.0f);
-          assertFalse("inf score for " + sim + ", len=" + len, Float.isInfinite(score));
-          assertFalse("nan score for " + sim + ", len=" + len, Float.isNaN(score));
-        }
+
+  public void testLengthEncodingBackwardCompatibility() throws IOException {
+    Similarity similarity = RandomPicks.randomFrom(random(), sims);
+    for (int indexCreatedVersionMajor : new int[] { Version.LUCENE_6_0_0.major, Version.LATEST.major}) {
+      for (int length : new int[] {1, 2, 4}) { // these length values are encoded accurately on both cases
+        Directory dir = newDirectory();
+        // set the version on the directory
+        new SegmentInfos(indexCreatedVersionMajor).commit(dir);
+        IndexWriter w = new IndexWriter(dir, newIndexWriterConfig().setSimilarity(similarity));
+        Document doc = new Document();
+        String value = IntStream.range(0, length).mapToObj(i -> "b").collect(Collectors.joining(" "));
+        doc.add(new TextField("foo", value, Store.NO));
+        w.addDocument(doc);
+        IndexReader reader = DirectoryReader.open(w);
+        IndexSearcher searcher = newSearcher(reader);
+        searcher.setSimilarity(similarity);
+        Term term = new Term("foo", "b");
+        TermContext context = TermContext.build(reader.getContext(), term);
+        SimWeight simWeight = similarity.computeWeight(1f, searcher.collectionStatistics("foo"), searcher.termStatistics(term, context));
+        SimilarityBase.BasicSimScorer simScorer = (SimilarityBase.BasicSimScorer) similarity.simScorer(simWeight, reader.leaves().get(0));
+        float docLength = simScorer.getLengthValue(0);
+        assertEquals(length, (int) docLength);
+        
+        w.close();
+        reader.close();
+        dir.close();
       }
     }
   }

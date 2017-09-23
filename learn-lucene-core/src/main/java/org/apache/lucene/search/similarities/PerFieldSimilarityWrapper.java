@@ -29,54 +29,16 @@ import org.apache.lucene.search.TermStatistics;
  * <p>
  * Subclasses should implement {@link #get(String)} to return an appropriate
  * Similarity (for example, using field-specific parameter values) for the field.
- * <p>
- * For Lucene 6, you should pass a default similarity that is used for all non
- * field-specific methods. From Lucene 7 on, this is no longer required.
  * 
  * @lucene.experimental
  */
 public abstract class PerFieldSimilarityWrapper extends Similarity {
   
-  /** Default similarity used for query norm and coordination factors. */
-  protected final Similarity defaultSim;
-  
   /**
-   * Constructor taking a default similarity for all non-field specific calculations.
-   * @param defaultSim is used for all non field-specific calculations, like
-   * {@link #queryNorm(float)} and {@link #coord(int, int)}.
+   * Sole constructor. (For invocation by subclass 
+   * constructors, typically implicit.)
    */
-  public PerFieldSimilarityWrapper(Similarity defaultSim) {
-    this.defaultSim = defaultSim;
-  }
-  
-  /**
-   * Backwards compatibility constructor for 6.x series that creates a per-field
-   * similarity where all non field-specific methods return a constant (1).
-   * <p>
-   * From Lucene 7 on, this will get the default again, because coordination
-   * factors and query normalization will be removed.
-   * @deprecated specify a default similarity for non field-specific calculations.
-   */
-  @Deprecated
-  public PerFieldSimilarityWrapper() {
-    // a fake similarity that is only used to return the default of 1 for queryNorm and coord.
-    this(new Similarity() {
-      @Override
-      public long computeNorm(FieldInvertState state) {
-        throw new AssertionError();
-      }
-
-      @Override
-      public SimWeight computeWeight(CollectionStatistics collectionStats, TermStatistics... termStats) {
-        throw new AssertionError();
-      }
-
-      @Override
-      public SimScorer simScorer(SimWeight weight, LeafReaderContext context) throws IOException {
-        throw new AssertionError();
-      }
-    });
-  }
+  public PerFieldSimilarityWrapper() {}
 
   @Override
   public final long computeNorm(FieldInvertState state) {
@@ -84,10 +46,10 @@ public abstract class PerFieldSimilarityWrapper extends Similarity {
   }
 
   @Override
-  public final SimWeight computeWeight(CollectionStatistics collectionStats, TermStatistics... termStats) {
+  public final SimWeight computeWeight(float boost, CollectionStatistics collectionStats, TermStatistics... termStats) {
     PerFieldSimWeight weight = new PerFieldSimWeight();
     weight.delegate = get(collectionStats.field());
-    weight.delegateWeight = weight.delegate.computeWeight(collectionStats, termStats);
+    weight.delegateWeight = weight.delegate.computeWeight(boost, collectionStats, termStats);
     return weight;
   }
 
@@ -97,16 +59,6 @@ public abstract class PerFieldSimilarityWrapper extends Similarity {
     return perFieldWeight.delegate.simScorer(perFieldWeight.delegateWeight, context);
   }
   
-  @Override
-  public final float coord(int overlap, int maxOverlap) {
-    return defaultSim.coord(overlap, maxOverlap);
-  }
-
-  @Override
-  public final float queryNorm(float valueForNormalization) {
-    return defaultSim.queryNorm(valueForNormalization);
-  }
-
   /** 
    * Returns a {@link Similarity} for scoring a field.
    */
@@ -115,15 +67,5 @@ public abstract class PerFieldSimilarityWrapper extends Similarity {
   static class PerFieldSimWeight extends SimWeight {
     Similarity delegate;
     SimWeight delegateWeight;
-    
-    @Override
-    public float getValueForNormalization() {
-      return delegateWeight.getValueForNormalization();
-    }
-    
-    @Override
-    public void normalize(float queryNorm, float boost) {
-      delegateWeight.normalize(queryNorm, boost);
-    }
   }
 }

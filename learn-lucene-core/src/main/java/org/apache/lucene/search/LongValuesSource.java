@@ -23,7 +23,6 @@ import java.util.Objects;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NumericDocValues;
-import org.apache.lucene.util.Bits;
 
 /**
  * Base class for producing {@link LongValues}
@@ -53,6 +52,15 @@ public abstract class LongValuesSource {
    */
   public abstract boolean needsScores();
 
+  @Override
+  public abstract int hashCode();
+
+  @Override
+  public abstract boolean equals(Object obj);
+
+  @Override
+  public abstract String toString();
+
   /**
    * Create a sort field based on the value of this producer
    * @param reverse true if the sort should be decreasing
@@ -79,27 +87,55 @@ public abstract class LongValuesSource {
    * Creates a LongValuesSource that always returns a constant value
    */
   public static LongValuesSource constant(long value) {
-    return new LongValuesSource() {
-      @Override
-      public LongValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
-        return new LongValues() {
-          @Override
-          public long longValue() throws IOException {
-            return value;
-          }
+    return new ConstantLongValuesSource(value);
+  }
 
-          @Override
-          public boolean advanceExact(int doc) throws IOException {
-            return true;
-          }
-        };
-      }
+  private static class ConstantLongValuesSource extends LongValuesSource {
 
-      @Override
-      public boolean needsScores() {
-        return false;
-      }
-    };
+    private final long value;
+
+    private ConstantLongValuesSource(long value) {
+      this.value = value;
+    }
+
+    @Override
+    public LongValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
+      return new LongValues() {
+        @Override
+        public long longValue() throws IOException {
+          return value;
+        }
+
+        @Override
+        public boolean advanceExact(int doc) throws IOException {
+          return true;
+        }
+      };
+    }
+
+    @Override
+    public boolean needsScores() {
+      return false;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(value);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      ConstantLongValuesSource that = (ConstantLongValuesSource) o;
+      return value == that.value;
+    }
+
+    @Override
+    public String toString() {
+      return "constant(" + value + ")";
+    }
+
   }
 
   private static class FieldValuesSource extends LongValuesSource {
@@ -119,6 +155,11 @@ public abstract class LongValuesSource {
     }
 
     @Override
+    public String toString() {
+      return "long(" + field + ")";
+    }
+
+    @Override
     public int hashCode() {
       return Objects.hash(field);
     }
@@ -126,8 +167,7 @@ public abstract class LongValuesSource {
     @Override
     public LongValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
       final NumericDocValues values = DocValues.getNumeric(ctx.reader(), field);
-      final Bits matchingBits = DocValues.getDocsWithField(ctx.reader(), field);
-      return toLongValues(values, matchingBits);
+      return toLongValues(values);
     }
 
     @Override
@@ -183,7 +223,7 @@ public abstract class LongValuesSource {
         @Override
         protected NumericDocValues getNumericDocValues(LeafReaderContext context, String field) throws IOException {
           ctx = context;
-          return asNumericDocValues(holder, missingValue);
+          return asNumericDocValues(holder);
         }
 
         @Override
@@ -194,39 +234,52 @@ public abstract class LongValuesSource {
     }
   }
 
-  private static LongValues toLongValues(NumericDocValues in, Bits matchingBits) {
+  private static LongValues toLongValues(NumericDocValues in) {
     return new LongValues() {
-
-      int current = -1;
-
       @Override
       public long longValue() throws IOException {
-        return in.get(current);
+        return in.longValue();
       }
 
       @Override
       public boolean advanceExact(int target) throws IOException {
-        current = target;
-        return matchingBits.get(target);
+        return in.advanceExact(target);
       }
 
     };
   }
 
-  private static NumericDocValues asNumericDocValues(LongValuesHolder in, Long missingValue) {
+  private static NumericDocValues asNumericDocValues(LongValuesHolder in) {
     return new NumericDocValues() {
       @Override
-      public long get(int docID) {
-        try {
-          if (in.values.advanceExact(docID))
-            return in.values.longValue();
-        }
-        catch (IOException e) {
-          throw new RuntimeException(e);
-        }
-        return missingValue;
+      public long longValue() throws IOException {
+        return in.values.longValue();
       }
 
+      @Override
+      public boolean advanceExact(int target) throws IOException {
+        return in.values.advanceExact(target);
+      }
+
+      @Override
+      public int docID() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public int nextDoc() throws IOException {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public int advance(int target) throws IOException {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public long cost() {
+        throw new UnsupportedOperationException();
+      }
     };
   }
 

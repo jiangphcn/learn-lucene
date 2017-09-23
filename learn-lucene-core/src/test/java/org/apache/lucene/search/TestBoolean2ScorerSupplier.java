@@ -102,14 +102,6 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
 
   }
 
-  private static Boolean2ScorerSupplier scorerSupplier(Map<Occur, Collection<ScorerSupplier>> subs,
-      boolean needsScores, int minShouldMatch) {
-    int maxCoord = subs.get(Occur.SHOULD).size() + subs.get(Occur.MUST).size();
-    float[] coords = new float[maxCoord];
-    Arrays.fill(coords, 1f);
-    return new Boolean2ScorerSupplier(null, subs, true, coords, maxCoord, needsScores, minShouldMatch);
-  }
-
   public void testConjunctionCost() {
     Map<Occur, Collection<ScorerSupplier>> subs = new EnumMap<>(Occur.class);
     for (Occur occur : Occur.values()) {
@@ -117,13 +109,13 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
     }
 
     subs.get(RandomPicks.randomFrom(random(), Arrays.asList(Occur.FILTER, Occur.MUST))).add(new FakeScorerSupplier(42));
-    assertEquals(42, scorerSupplier(subs, random().nextBoolean(), 0).cost());
+    assertEquals(42, new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0).cost());
 
     subs.get(RandomPicks.randomFrom(random(), Arrays.asList(Occur.FILTER, Occur.MUST))).add(new FakeScorerSupplier(12));
-    assertEquals(12, scorerSupplier(subs, random().nextBoolean(), 0).cost());
+    assertEquals(12, new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0).cost());
 
     subs.get(RandomPicks.randomFrom(random(), Arrays.asList(Occur.FILTER, Occur.MUST))).add(new FakeScorerSupplier(20));
-    assertEquals(12, scorerSupplier(subs, random().nextBoolean(), 0).cost());
+    assertEquals(12, new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0).cost());
   }
 
   public void testDisjunctionCost() throws IOException {
@@ -133,17 +125,17 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
     }
 
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(42));
-    ScorerSupplier s = scorerSupplier(subs, random().nextBoolean(), 0);
+    ScorerSupplier s = new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0);
     assertEquals(42, s.cost());
     assertEquals(42, s.get(random().nextBoolean()).iterator().cost());
 
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(12));
-    s = scorerSupplier(subs, random().nextBoolean(), 0);
+    s = new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0);
     assertEquals(42 + 12, s.cost());
     assertEquals(42 + 12, s.get(random().nextBoolean()).iterator().cost());
 
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(20));
-    s = scorerSupplier(subs, random().nextBoolean(), 0);
+    s = new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0);
     assertEquals(42 + 12 + 20, s.cost());
     assertEquals(42 + 12 + 20, s.get(random().nextBoolean()).iterator().cost());
   }
@@ -156,26 +148,26 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
 
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(42));
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(12));
-    ScorerSupplier s = scorerSupplier(subs, random().nextBoolean(), 1);
+    ScorerSupplier s = new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 1);
     assertEquals(42 + 12, s.cost());
     assertEquals(42 + 12, s.get(random().nextBoolean()).iterator().cost());
 
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(20));
-    s = scorerSupplier(subs, random().nextBoolean(), 1);
+    s = new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 1);
     assertEquals(42 + 12 + 20, s.cost());
     assertEquals(42 + 12 + 20, s.get(random().nextBoolean()).iterator().cost());
-    s = scorerSupplier(subs, random().nextBoolean(), 2);
+    s = new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 2);
     assertEquals(12 + 20, s.cost());
     assertEquals(12 + 20, s.get(random().nextBoolean()).iterator().cost());
 
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(30));
-    s = scorerSupplier(subs, random().nextBoolean(), 1);
+    s = new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 1);
     assertEquals(42 + 12 + 20 + 30, s.cost());
     assertEquals(42 + 12 + 20 + 30, s.get(random().nextBoolean()).iterator().cost());
-    s = scorerSupplier(subs, random().nextBoolean(), 2);
+    s = new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 2);
     assertEquals(12 + 20 + 30, s.cost());
     assertEquals(12 + 20 + 30, s.get(random().nextBoolean()).iterator().cost());
-    s = scorerSupplier(subs, random().nextBoolean(), 3);
+    s = new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 3);
     assertEquals(12 + 20, s.cost());
     assertEquals(12 + 20, s.get(random().nextBoolean()).iterator().cost());
   }
@@ -210,7 +202,8 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
         continue;
       }
       int minShouldMatch = numShoulds == 0 ? 0 : TestUtil.nextInt(random(), 0, numShoulds - 1);
-      Boolean2ScorerSupplier supplier = scorerSupplier(subs, needsScores, minShouldMatch);
+      Boolean2ScorerSupplier supplier = new Boolean2ScorerSupplier(null,
+          subs, needsScores, minShouldMatch);
       long cost1 = supplier.cost();
       long cost2 = supplier.get(false).iterator().cost();
       assertEquals("clauses=" + subs + ", minShouldMatch=" + minShouldMatch, cost1, cost2);
@@ -234,7 +227,7 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
     // If sequential access is required, only the least costly clause does not use random-access
     subs.get(RandomPicks.randomFrom(random(), Arrays.asList(Occur.FILTER, Occur.MUST))).add(new FakeScorerSupplier(42, true));
     subs.get(RandomPicks.randomFrom(random(), Arrays.asList(Occur.FILTER, Occur.MUST))).add(new FakeScorerSupplier(12, false));
-    scorerSupplier(subs, random().nextBoolean(), 0).get(false); // triggers assertions as a side-effect
+    new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0).get(false); // triggers assertions as a side-effect
 
     subs = new EnumMap<>(Occur.class);
     for (Occur occur : Occur.values()) {
@@ -244,7 +237,7 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
     // If random access is required, then we propagate to sub clauses
     subs.get(RandomPicks.randomFrom(random(), Arrays.asList(Occur.FILTER, Occur.MUST))).add(new FakeScorerSupplier(42, true));
     subs.get(RandomPicks.randomFrom(random(), Arrays.asList(Occur.FILTER, Occur.MUST))).add(new FakeScorerSupplier(12, true));
-    scorerSupplier(subs, random().nextBoolean(), 0).get(true); // triggers assertions as a side-effect
+    new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0).get(true); // triggers assertions as a side-effect
   }
 
   public void testDisjunctionRandomAccess() throws IOException {
@@ -256,7 +249,7 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
       }
       subs.get(Occur.SHOULD).add(new FakeScorerSupplier(42, randomAccess));
       subs.get(Occur.SHOULD).add(new FakeScorerSupplier(12, randomAccess));
-      scorerSupplier(subs, random().nextBoolean(), 0).get(randomAccess); // triggers assertions as a side-effect
+      new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0).get(randomAccess); // triggers assertions as a side-effect
     }
   }
 
@@ -272,7 +265,7 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(42, true));
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(12, false));
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(30, false));
-    scorerSupplier(subs, random().nextBoolean(), 2).get(false); // triggers assertions as a side-effect
+    new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 2).get(false); // triggers assertions as a side-effect
 
     subs = new EnumMap<>(Occur.class);
     for (Occur occur : Occur.values()) {
@@ -283,7 +276,7 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(42, true));
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(12, true));
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(30, true));
-    scorerSupplier(subs, random().nextBoolean(), 2).get(true); // triggers assertions as a side-effect
+    new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 2).get(true); // triggers assertions as a side-effect
 
     subs = new EnumMap<>(Occur.class);
     for (Occur occur : Occur.values()) {
@@ -294,7 +287,7 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(12, false));
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(30, false));
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(20, false));
-    scorerSupplier(subs, random().nextBoolean(), 2).get(false); // triggers assertions as a side-effect
+    new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 2).get(false); // triggers assertions as a side-effect
 
     subs = new EnumMap<>(Occur.class);
     for (Occur occur : Occur.values()) {
@@ -305,7 +298,7 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(12, false));
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(30, true));
     subs.get(Occur.SHOULD).add(new FakeScorerSupplier(20, false));
-    scorerSupplier(subs, random().nextBoolean(), 3).get(false); // triggers assertions as a side-effect
+    new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 3).get(false); // triggers assertions as a side-effect
   }
 
   public void testProhibitedRandomAccess() throws IOException {
@@ -318,7 +311,7 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
       // The MUST_NOT clause always uses random-access
       subs.get(Occur.MUST).add(new FakeScorerSupplier(42, randomAccess));
       subs.get(Occur.MUST_NOT).add(new FakeScorerSupplier(TestUtil.nextInt(random(), 1, 100), true));
-      scorerSupplier(subs, random().nextBoolean(), 0).get(randomAccess); // triggers assertions as a side-effect
+      new Boolean2ScorerSupplier(null, subs, random().nextBoolean(), 0).get(randomAccess); // triggers assertions as a side-effect
     }
   }
 
@@ -332,7 +325,7 @@ public class TestBoolean2ScorerSupplier extends LuceneTestCase {
       // The SHOULD clause always uses random-access if there is a MUST clause
       subs.get(Occur.MUST).add(new FakeScorerSupplier(42, randomAccess));
       subs.get(Occur.SHOULD).add(new FakeScorerSupplier(TestUtil.nextInt(random(), 1, 100), true));
-      scorerSupplier(subs, true, 0).get(randomAccess); // triggers assertions as a side-effect
+      new Boolean2ScorerSupplier(null, subs, true, 0).get(randomAccess); // triggers assertions as a side-effect
     }
   }
 

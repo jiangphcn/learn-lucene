@@ -16,17 +16,19 @@
  */
 
 /**
- *
- * BlockTree词项词典.
- *
+ * BlockTree terms dictionary.
+ * 
  * <p>
- * 该词项词典，将所有的词项以块组织，可以共享前缀，然后在内存中存储为前缀特里树（同类算法：FST）。
- *
- * 通过实现扩展点，可以扩展自己的{@link org.apache.lucene.codecs.PostingsWriterBase}
+ * This terms dictionary organizes all terms into blocks according to
+ * shared prefix, such that each block has enough terms, and then stores
+ * the prefix trie in memory as an FST as the index structure.  It allows
+ * you to plug in your own {@link
+ * org.apache.lucene.codecs.PostingsWriterBase} to implement the
+ * postings.
  * </p>
- *
- * <p>
- *     关于文件格式，请参考: {@link org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter}
+ * 
+ * <p>See {@link org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter}
+ *   for the file format.
  * </p>
  */
 package org.apache.lucene.codecs.blocktree;

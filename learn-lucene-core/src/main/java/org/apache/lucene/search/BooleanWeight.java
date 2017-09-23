@@ -19,7 +19,6 @@ package org.apache.lucene.search;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.Iterator;
@@ -43,44 +42,17 @@ final class BooleanWeight extends Weight {
   final BooleanQuery query;
   
   final ArrayList<Weight> weights;
-  final int maxCoord;  // num optional + num required
-  final boolean disableCoord;
   final boolean needsScores;
-  final float coords[];
 
-  BooleanWeight(BooleanQuery query, IndexSearcher searcher, boolean needsScores, boolean disableCoord) throws IOException {
+  BooleanWeight(BooleanQuery query, IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
     super(query);
     this.query = query;
     this.needsScores = needsScores;
     this.similarity = searcher.getSimilarity(needsScores);
     weights = new ArrayList<>();
-    int i = 0;
-    int maxCoord = 0;
     for (BooleanClause c : query) {
-      Weight w = searcher.createWeight(c.getQuery(), needsScores && c.isScoring());
+      Weight w = searcher.createWeight(c.getQuery(), needsScores && c.isScoring(), boost);
       weights.add(w);
-      if (c.isScoring()) {
-        maxCoord++;
-      }
-      i += 1;
-    }
-    this.maxCoord = maxCoord;
-    
-    // precompute coords (0..N, N).
-    // set disableCoord when its explicit, scores are not needed, no scoring clauses, or the sim doesn't use it.
-    coords = new float[maxCoord+1];
-    Arrays.fill(coords, 1F);
-    coords[0] = 0f;
-    if (maxCoord > 0 && needsScores && disableCoord == false) {
-      // compute coords from the similarity, look for any actual ones.
-      boolean seenActualCoord = false;
-      for (i = 1; i < coords.length; i++) {
-        coords[i] = coord(i, maxCoord);
-        seenActualCoord |= (coords[i] != 1F);
-      }
-      this.disableCoord = seenActualCoord == false;
-    } else {
-      this.disableCoord = true;
     }
   }
 
@@ -96,51 +68,9 @@ final class BooleanWeight extends Weight {
   }
 
   @Override
-  public float getValueForNormalization() throws IOException {
-    float sum = 0.0f;
-    int i = 0;
-    for (BooleanClause clause : query) {
-      // call sumOfSquaredWeights for all clauses in case of side effects
-      float s = weights.get(i).getValueForNormalization();         // sum sub weights
-      if (clause.isScoring()) {
-        // only add to sum for scoring clauses
-        sum += s;
-      }
-      i += 1;
-    }
-
-    return sum ;
-  }
-
-  public float coord(int overlap, int maxOverlap) {
-    if (overlap == 0) {
-      // special case that there are only non-scoring clauses
-      return 0F;
-    } else if (maxOverlap == 1) {
-      // LUCENE-4300: in most cases of maxOverlap=1, BQ rewrites itself away,
-      // so coord() is not applied. But when BQ cannot optimize itself away
-      // for a single clause (minNrShouldMatch, prohibited clauses, etc), it's
-      // important not to apply coord(1,1) for consistency, it might not be 1.0F
-      return 1F;
-    } else {
-      // common case: use the similarity to compute the coord
-      return similarity.coord(overlap, maxOverlap);
-    }
-  }
-
-  @Override
-  public void normalize(float norm, float boost) {
-    for (Weight w : weights) {
-      // normalize all clauses, (even if non-scoring in case of side affects)
-      w.normalize(norm, boost);
-    }
-  }
-
-  @Override
   public Explanation explain(LeafReaderContext context, int doc) throws IOException {
     final int minShouldMatch = query.getMinimumNumberShouldMatch();
     List<Explanation> subs = new ArrayList<>();
-    int coord = 0;
     float sum = 0.0f;
     boolean fail = false;
     int matchCount = 0;
@@ -154,7 +84,6 @@ final class BooleanWeight extends Weight {
         if (c.isScoring()) {
           subs.add(e);
           sum += e.getValue();
-          coord++;
         } else if (c.isRequired()) {
           subs.add(Explanation.match(0f, "match on required clause, product of:",
               Explanation.match(0f, Occur.FILTER + " clause"), e));
@@ -181,13 +110,7 @@ final class BooleanWeight extends Weight {
       return Explanation.noMatch("Failure to match minimum number of optional clauses: " + minShouldMatch, subs);
     } else {
       // we have a match
-      Explanation result = Explanation.match(sum, "sum of:", subs);
-      final float coordFactor = disableCoord ? 1.0f : coord(coord, maxCoord);
-      if (coordFactor != 1f) {
-        result = Explanation.match(sum * coordFactor, "product of:",
-            result, Explanation.match(coordFactor, "coord("+coord+"/"+maxCoord+")"));
-      }
-      return result;
+      return Explanation.match(sum, "sum of:", subs);
     }
   }
 
@@ -247,15 +170,10 @@ final class BooleanWeight extends Weight {
     }
 
     if (optional.size() == 1) {
-      BulkScorer opt = optional.get(0);
-      if (!disableCoord && maxCoord > 1) {
-        return new BooleanTopLevelScorers.BoostedBulkScorer(opt, coord(1, maxCoord));
-      } else {
-        return opt;
-      }
+      return optional.get(0);
     }
 
-    return new BooleanScorer(this, disableCoord, maxCoord, optional, Math.max(1, query.getMinimumNumberShouldMatch()), needsScores);
+    return new BooleanScorer(this, optional, Math.max(1, query.getMinimumNumberShouldMatch()), needsScores);
   }
 
   // Return a BulkScorer for the required clauses only,
@@ -278,12 +196,8 @@ final class BooleanWeight extends Weight {
         // no matches
         return null;
       }
-      if (c.isScoring() == false) {
-        if (needsScores) {
-          scorer = disableScoring(scorer);
-        }
-      } else {
-        assert maxCoord == 1;
+      if (c.isScoring() == false && needsScores) {
+        scorer = disableScoring(scorer);
       }
     }
     return scorer;
@@ -355,7 +269,7 @@ final class BooleanWeight extends Weight {
     } else {
       Scorer prohibitedScorer = prohibited.size() == 1
           ? prohibited.get(0)
-          : new DisjunctionSumScorer(this, prohibited, coords, false);
+          : new DisjunctionSumScorer(this, prohibited, false);
       if (prohibitedScorer.twoPhaseIterator() != null) {
         // ReqExclBulkScorer can't deal efficiently with two-phased prohibited clauses
         return null;
@@ -431,6 +345,7 @@ final class BooleanWeight extends Weight {
       scorers.get(Occur.SHOULD).clear();
     }
 
-    return new Boolean2ScorerSupplier(this, scorers, disableCoord, coords, maxCoord, needsScores, minShouldMatch);
+    return new Boolean2ScorerSupplier(this, scorers, needsScores, minShouldMatch);
   }
+
 }

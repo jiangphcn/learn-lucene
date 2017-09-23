@@ -73,9 +73,8 @@ public final class CompressingStoredFieldsWriter extends StoredFieldsWriter {
 
   static final String CODEC_SFX_IDX = "Index";
   static final String CODEC_SFX_DAT = "Data";
-  static final int VERSION_START = 0;
-  static final int VERSION_CHUNK_STATS = 1;
-  static final int VERSION_CURRENT = VERSION_CHUNK_STATS;
+  static final int VERSION_START = 1;
+  static final int VERSION_CURRENT = VERSION_START;
 
   private final String segment;
   private CompressingStoredFieldsIndexWriter indexWriter;
@@ -514,7 +513,8 @@ public final class CompressingStoredFieldsWriter extends StoredFieldsWriter {
         }
       }
 
-      final DocIDMerger<CompressingStoredFieldsMergeSub> docIDMerger = DocIDMerger.of(subs, true);
+      final DocIDMerger<CompressingStoredFieldsMergeSub> docIDMerger =
+          DocIDMerger.of(subs, true);
       while (true) {
         CompressingStoredFieldsMergeSub sub = docIDMerger.next();
         if (sub == null) {

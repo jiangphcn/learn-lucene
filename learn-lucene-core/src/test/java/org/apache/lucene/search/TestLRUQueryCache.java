@@ -42,8 +42,11 @@ import org.apache.lucene.document.Field.Store;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.FilterDirectoryReader;
+import org.apache.lucene.index.FilterLeafReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.RandomIndexWriter;
@@ -139,7 +142,7 @@ public class TestLRUQueryCache extends LuceneTestCase {
                 TotalHitCountCollector collector = new TotalHitCountCollector();
                 searcher.search(q, collector); // will use the cache
                 final int totalHits1 = collector.getTotalHits();
-                final int totalHits2 = searcher.search(q, 1).totalHits; // will not use the cache because of scores
+                final long totalHits2 = searcher.search(q, 1).totalHits; // will not use the cache because of scores
                 assertEquals(totalHits2, totalHits1);
               } finally {
                 mgr.release(searcher);
@@ -349,8 +352,8 @@ public class TestLRUQueryCache extends LuceneTestCase {
     }
 
     @Override
-    public Weight createWeight(IndexSearcher searcher, boolean needsScores) throws IOException {
-      return new ConstantScoreWeight(this) {
+    public Weight createWeight(IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
+      return new ConstantScoreWeight(this, boost) {
         @Override
         public Scorer scorer(LeafReaderContext context) throws IOException {
           return null;
@@ -607,12 +610,12 @@ public class TestLRUQueryCache extends LuceneTestCase {
     final int segmentCount2 = reader2.leaves().size();
     final IndexSearcher searcher2 = new IndexSearcher(reader2);
 
-    final Map<Object, Integer> indexId = new HashMap<>();
+    final Map<IndexReader.CacheKey, Integer> indexId = new HashMap<>();
     for (LeafReaderContext ctx : reader1.leaves()) {
-      indexId.put(ctx.reader().getCoreCacheKey(), 1);
+      indexId.put(ctx.reader().getCoreCacheHelper().getKey(), 1);
     }
     for (LeafReaderContext ctx : reader2.leaves()) {
-      indexId.put(ctx.reader().getCoreCacheKey(), 2);
+      indexId.put(ctx.reader().getCoreCacheHelper().getKey(), 2);
     }
 
     final AtomicLong hitCount1 = new AtomicLong();
@@ -938,8 +941,8 @@ public class TestLRUQueryCache extends LuceneTestCase {
     int[] i = new int[] {42}; // an array so that clone keeps the reference
 
     @Override
-    public Weight createWeight(IndexSearcher searcher, boolean needsScores) throws IOException {
-      return new ConstantScoreWeight(this) {
+    public Weight createWeight(IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
+      return new ConstantScoreWeight(this, boost) {
         @Override
         public Scorer scorer(LeafReaderContext context) throws IOException {
           return null;
@@ -1221,6 +1224,58 @@ public class TestLRUQueryCache extends LuceneTestCase {
     dir.close();
   }
 
+  // a reader whose sole purpose is to not be cacheable
+  private static class DummyDirectoryReader extends FilterDirectoryReader {
+
+    public DummyDirectoryReader(DirectoryReader in) throws IOException {
+      super(in, new SubReaderWrapper() {
+        @Override
+        public LeafReader wrap(LeafReader reader) {
+          return new FilterLeafReader(reader) {
+            @Override
+            public CacheHelper getCoreCacheHelper() {
+              return null;
+            }
+            @Override
+            public CacheHelper getReaderCacheHelper() {
+              return null;
+            }
+          };
+        }
+      });
+    }
+
+    @Override
+    protected DirectoryReader doWrapDirectoryReader(DirectoryReader in) throws IOException {
+      return new DummyDirectoryReader(in);
+    }
+
+    @Override
+    public CacheHelper getReaderCacheHelper() {
+      return null;
+    }
+  }
+
+  public void testReaderNotSuitedForCaching() throws IOException {
+    Directory dir = newDirectory();
+    IndexWriterConfig iwc = newIndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE);
+    RandomIndexWriter w = new RandomIndexWriter(random(), dir, iwc);
+    w.addDocument(new Document());
+    DirectoryReader reader = new DummyDirectoryReader(w.getReader());
+    IndexSearcher searcher = newSearcher(reader);
+    searcher.setQueryCachingPolicy(QueryCachingPolicy.ALWAYS_CACHE);
+
+    // don't cache if the reader does not expose a cache helper
+    assertNull(reader.leaves().get(0).reader().getCoreCacheHelper());
+    LRUQueryCache cache = new LRUQueryCache(2, 10000, context -> true);
+    searcher.setQueryCache(cache);
+    assertEquals(0, searcher.count(new DummyQuery()));
+    assertEquals(0, cache.getCacheCount());
+    reader.close();
+    w.close();
+    dir.close();
+  }
+
   private static class DummyQuery2 extends Query {
 
     private final AtomicBoolean scorerCreated;
@@ -1230,8 +1285,8 @@ public class TestLRUQueryCache extends LuceneTestCase {
     }
 
     @Override
-    public Weight createWeight(IndexSearcher searcher, boolean needsScores) throws IOException {
-      return new ConstantScoreWeight(this) {
+    public Weight createWeight(IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
+      return new ConstantScoreWeight(this, boost) {
         @Override
         public Scorer scorer(LeafReaderContext context) throws IOException {
           return scorerSupplier(context).get(false);
@@ -1243,7 +1298,7 @@ public class TestLRUQueryCache extends LuceneTestCase {
             @Override
             public Scorer get(boolean randomAccess) throws IOException {
               scorerCreated.set(true);
-              return new ConstantScoreScorer(weight, score(), DocIdSetIterator.all(1));
+              return new ConstantScoreScorer(weight, boost, DocIdSetIterator.all(1));
             }
 
             @Override

@@ -120,13 +120,17 @@ public class TestPerFieldDocValuesFormat extends BaseDocValuesFormatTestCase {
     assertEquals(1, hits.totalHits);
     // Iterate through the results:
     for (int i = 0; i < hits.scoreDocs.length; i++) {
-      Document hitDoc = isearcher.doc(hits.scoreDocs[i].doc);
+      int hitDocID = hits.scoreDocs[i].doc;
+      Document hitDoc = isearcher.doc(hitDocID);
       assertEquals(text, hitDoc.get("fieldname"));
       assert ireader.leaves().size() == 1;
       NumericDocValues dv = ireader.leaves().get(0).reader().getNumericDocValues("dv1");
-      assertEquals(5, dv.get(hits.scoreDocs[i].doc));
+      assertEquals(hitDocID, dv.advance(hitDocID));
+      assertEquals(5, dv.longValue());
+      
       BinaryDocValues dv2 = ireader.leaves().get(0).reader().getBinaryDocValues("dv2");
-      final BytesRef term = dv2.get(hits.scoreDocs[i].doc);
+      assertEquals(hitDocID, dv2.advance(hitDocID));
+      final BytesRef term = dv2.binaryValue();
       assertEquals(new BytesRef("hello world"), term);
     }
 
@@ -200,28 +204,28 @@ public class TestPerFieldDocValuesFormat extends BaseDocValuesFormatTestCase {
       final DocValuesConsumer consumer = delegate.fieldsConsumer(state);
       return new DocValuesConsumer() {
         @Override
-        public void addNumericField(FieldInfo field, Iterable<Number> values) throws IOException {
+        public void addNumericField(FieldInfo field, DocValuesProducer values) throws IOException {
           consumer.addNumericField(field, values);
         }
 
         @Override
-        public void addBinaryField(FieldInfo field, Iterable<BytesRef> values) throws IOException {
+        public void addBinaryField(FieldInfo field, DocValuesProducer values) throws IOException {
           consumer.addBinaryField(field, values);
         }
 
         @Override
-        public void addSortedField(FieldInfo field, Iterable<BytesRef> values, Iterable<Number> docToOrd) throws IOException {
-          consumer.addSortedField(field, values, docToOrd);
+        public void addSortedField(FieldInfo field, DocValuesProducer values) throws IOException {
+          consumer.addSortedField(field, values);
         }
 
         @Override
-        public void addSortedNumericField(FieldInfo field, Iterable<Number> docToValueCount, Iterable<Number> values) throws IOException {
-          consumer.addSortedNumericField(field, docToValueCount, values);
+        public void addSortedNumericField(FieldInfo field, DocValuesProducer values) throws IOException {
+          consumer.addSortedNumericField(field, values);
         }
 
         @Override
-        public void addSortedSetField(FieldInfo field, Iterable<BytesRef> values, Iterable<Number> docToOrdCount, Iterable<Number> ords) throws IOException {
-          consumer.addSortedSetField(field, values, docToOrdCount, ords);
+        public void addSortedSetField(FieldInfo field, DocValuesProducer values) throws IOException {
+          consumer.addSortedSetField(field, values);
         }
 
         @Override

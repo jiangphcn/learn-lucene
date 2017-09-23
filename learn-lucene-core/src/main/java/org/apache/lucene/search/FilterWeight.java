@@ -47,7 +47,7 @@ public abstract class FilterWeight extends Weight {
   /**
    * Alternative constructor.
    * Use this variant only if the <code>weight</code> was not obtained
-   * via the {@link Query#createWeight(IndexSearcher, boolean)}
+   * via the {@link Query#createWeight(IndexSearcher, boolean, float)}
    * method of the <code>query</code> object.
    */
   protected FilterWeight(Query query, Weight weight) {
@@ -63,16 +63,6 @@ public abstract class FilterWeight extends Weight {
   @Override
   public Explanation explain(LeafReaderContext context, int doc) throws IOException {
     return in.explain(context, doc);
-  }
-
-  @Override
-  public float getValueForNormalization() throws IOException {
-    return in.getValueForNormalization();
-  }
-
-  @Override
-  public void normalize(float norm, float boost) {
-    in.normalize(norm, boost);
   }
 
   @Override

@@ -36,7 +36,7 @@ import org.apache.lucene.util.fst.ByteSequenceOutputs;
 import org.apache.lucene.util.fst.FST;
 
 /**
- * {@link Terms} 的BlockTree的实现
+ * BlockTree's implementation of {@link Terms}.
  * @lucene.internal
  */
 public final class FieldReader extends Terms implements Accountable {
@@ -124,7 +124,7 @@ public final class FieldReader extends Terms implements Accountable {
     }
   }
 
-  /** 用于Debug,也用于CheckIndex.*/
+  /** For debugging -- used by CheckIndex too*/
   @Override
   public Stats getStats() throws IOException {
     // TODO: add auto-prefix terms into stats
@@ -204,6 +204,6 @@ public final class FieldReader extends Terms implements Accountable {
 
   @Override
   public String toString() {
-    return "BlockTreeTerms(terms=" + numTerms + ",postings=" + sumDocFreq + ",positions=" + sumTotalTermFreq + ",docs=" + docCount + ")";
+    return "BlockTreeTerms(seg=" + parent.segment +" terms=" + numTerms + ",postings=" + sumDocFreq + ",positions=" + sumTotalTermFreq + ",docs=" + docCount + ")";
   }
 }

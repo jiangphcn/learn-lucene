@@ -48,7 +48,7 @@ public class FuzzyTermOnShortTermsTest extends LuceneTestCase {
 
       countHits(a, new String[]{"abcde"}, new FuzzyQuery(new Term(FIELD, "abc"), 2), 1);
       countHits(a, new String[]{"abc"}, new FuzzyQuery(new Term(FIELD, "abcde"), 2), 1);
-      
+
       // LUCENE-7439: these now work as well:
       
       countHits(a, new String[]{"ab"}, new FuzzyQuery(new Term(FIELD, "a"), 1), 1);

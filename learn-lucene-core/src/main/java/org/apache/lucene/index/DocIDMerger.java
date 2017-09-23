@@ -17,6 +17,7 @@
 
 package org.apache.lucene.index;
 
+import java.io.IOException;
 import java.util.List;
 
 import org.apache.lucene.search.DocIdSetIterator; // javadocs
@@ -43,11 +44,11 @@ public abstract class DocIDMerger<T extends DocIDMerger.Sub> {
     }
 
     /** Returns the next document ID from this sub reader, and {@link DocIdSetIterator#NO_MORE_DOCS} when done */
-    public abstract int nextDoc();
+    public abstract int nextDoc() throws IOException;
   }
 
   /** Construct this from the provided subs, specifying the maximum sub count */
-  public static <T extends DocIDMerger.Sub> DocIDMerger<T> of(List<T> subs, int maxCount, boolean indexIsSorted) {
+  public static <T extends DocIDMerger.Sub> DocIDMerger<T> of(List<T> subs, int maxCount, boolean indexIsSorted) throws IOException {
     if (indexIsSorted && maxCount > 1) {
       return new SortedDocIDMerger<>(subs, maxCount);
     } else {
@@ -56,15 +57,17 @@ public abstract class DocIDMerger<T extends DocIDMerger.Sub> {
   }
 
   /** Construct this from the provided subs */
-  public static <T extends DocIDMerger.Sub> DocIDMerger<T> of(List<T> subs, boolean indexIsSorted) {
+  public static <T extends DocIDMerger.Sub> DocIDMerger<T> of(List<T> subs, boolean indexIsSorted) throws IOException {
     return of(subs, subs.size(), indexIsSorted);
   }
 
   /** Reuse API, currently only used by postings during merge */
-  public abstract void reset();
+  public abstract void reset() throws IOException;
 
-  /** Returns null when done */
-  public abstract T next();
+  /** Returns null when done.
+   *  <b>NOTE:</b> after the iterator has exhausted you should not call this
+   *  method, as it may result in unpredicted behavior. */
+  public abstract T next() throws IOException;
 
   private DocIDMerger() {}
 
@@ -74,13 +77,13 @@ public abstract class DocIDMerger<T extends DocIDMerger.Sub> {
     private T current;
     private int nextIndex;
 
-    private SequentialDocIDMerger(List<T> subs) {
+    private SequentialDocIDMerger(List<T> subs) throws IOException {
       this.subs = subs;
       reset();
     }
 
     @Override
-    public void reset() {
+    public void reset() throws IOException {
       if (subs.size() > 0) {
         current = subs.get(0);
         nextIndex = 1;
@@ -91,11 +94,7 @@ public abstract class DocIDMerger<T extends DocIDMerger.Sub> {
     }
 
     @Override
-    public T next() {
-      if (current == null) {
-        // NOTE: it's annoying that caller is allowed to call us again even after we returned null before
-        return null;
-      }
+    public T next() throws IOException {
       while (true) {
         int docID = current.nextDoc();
         if (docID == NO_MORE_DOCS) {
@@ -123,7 +122,7 @@ public abstract class DocIDMerger<T extends DocIDMerger.Sub> {
     private final List<T> subs;
     private final PriorityQueue<T> queue;
 
-    private SortedDocIDMerger(List<T> subs, int maxCount) {
+    private SortedDocIDMerger(List<T> subs, int maxCount) throws IOException {
       this.subs = subs;
       queue = new PriorityQueue<T>(maxCount) {
         @Override
@@ -136,7 +135,7 @@ public abstract class DocIDMerger<T extends DocIDMerger.Sub> {
     }
 
     @Override
-    public void reset() {
+    public void reset() throws IOException {
       // caller may not have fully consumed the queue:
       queue.clear();
       boolean first = true;
@@ -170,12 +169,8 @@ public abstract class DocIDMerger<T extends DocIDMerger.Sub> {
     }
 
     @Override
-    public T next() {
+    public T next() throws IOException {
       T top = queue.top();
-      if (top == null) {
-        // NOTE: it's annoying that caller is allowed to call us again even after we returned null before
-        return null;
-      }
 
       while (true) {
         int docID = top.nextDoc();

@@ -20,7 +20,7 @@ package org.apache.lucene.util;
 import java.io.IOException;
 
 /**
- * 简单的迭代器接口，用于迭代{@link BytesRef}.
+ * A simple iterator interface for {@link BytesRef} iteration.
  */
 public interface BytesRefIterator {
 
@@ -28,7 +28,7 @@ public interface BytesRefIterator {
    * Increments the iteration to the next {@link BytesRef} in the iterator.
    * Returns the resulting {@link BytesRef} or <code>null</code> if the end of
    * the iterator is reached. The returned BytesRef may be re-used across calls
-   * to next. After this method returns null, do not call i t again: the results
+   * to next. After this method returns null, do not call it again: the results
    * are undefined.
    * 
    * @return the next {@link BytesRef} in the iterator or <code>null</code> if

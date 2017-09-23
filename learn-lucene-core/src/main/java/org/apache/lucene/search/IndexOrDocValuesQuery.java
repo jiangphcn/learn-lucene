@@ -110,24 +110,13 @@ public final class IndexOrDocValuesQuery extends Query {
   }
 
   @Override
-  public Weight createWeight(IndexSearcher searcher, boolean needsScores) throws IOException {
-    final Weight indexWeight = indexQuery.createWeight(searcher, needsScores);
-    final Weight dvWeight = dvQuery.createWeight(searcher, needsScores);
+  public Weight createWeight(IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
+    final Weight indexWeight = indexQuery.createWeight(searcher, needsScores, boost);
+    final Weight dvWeight = dvQuery.createWeight(searcher, needsScores, boost);
     return new Weight(this) {
       @Override
       public void extractTerms(Set<Term> terms) {
         indexWeight.extractTerms(terms);
-      }
-
-      @Override
-      public void normalize(float norm, float boost) {
-        indexWeight.normalize(norm, boost);
-        dvWeight.normalize(norm, boost);
-      }
-
-      @Override
-      public float getValueForNormalization() throws IOException {
-        return indexWeight.getValueForNormalization();
       }
 
       @Override

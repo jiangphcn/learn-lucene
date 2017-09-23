@@ -24,7 +24,6 @@ import org.apache.lucene.index.PointValues;
 import org.apache.lucene.index.PointValues.IntersectVisitor;
 import org.apache.lucene.index.PointValues.Relation;
 import org.apache.lucene.document.IntPoint;    // javadocs
-import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.util.BitSetIterator;
@@ -100,12 +99,12 @@ public abstract class PointRangeQuery extends Query {
   }
 
   @Override
-  public final Weight createWeight(IndexSearcher searcher, boolean needsScores) throws IOException {
+  public final Weight createWeight(IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
 
     // We don't use RandomAccessWeight here: it's no good to approximate with "match all docs".
     // This is an inverted structure and should be used in the first pass:
 
-    return new ConstantScoreWeight(this) {
+    return new ConstantScoreWeight(this, boost) {
 
       private IntersectVisitor getIntersectVisitor(DocIdSetBuilder result) {
         return new IntersectVisitor() {
@@ -227,27 +226,24 @@ public abstract class PointRangeQuery extends Query {
       @Override
       public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
         LeafReader reader = context.reader();
-        PointValues values = reader.getPointValues();
+
+        PointValues values = reader.getPointValues(field);
         if (values == null) {
-          // No docs in this segment indexed any points
+          // No docs in this segment/field indexed any points
           return null;
         }
-        FieldInfo fieldInfo = reader.getFieldInfos().fieldInfo(field);
-        if (fieldInfo == null) {
-          // No docs in this segment indexed this field at all
-          return null;
+
+        if (values.getNumDimensions() != numDims) {
+          throw new IllegalArgumentException("field=\"" + field + "\" was indexed with numDims=" + values.getNumDimensions() + " but this query has numDims=" + numDims);
         }
-        if (fieldInfo.getPointDimensionCount() != numDims) {
-          throw new IllegalArgumentException("field=\"" + field + "\" was indexed with numDims=" + fieldInfo.getPointDimensionCount() + " but this query has numDims=" + numDims);
-        }
-        if (bytesPerDim != fieldInfo.getPointNumBytes()) {
-          throw new IllegalArgumentException("field=\"" + field + "\" was indexed with bytesPerDim=" + fieldInfo.getPointNumBytes() + " but this query has bytesPerDim=" + bytesPerDim);
+        if (bytesPerDim != values.getBytesPerDimension()) {
+          throw new IllegalArgumentException("field=\"" + field + "\" was indexed with bytesPerDim=" + values.getBytesPerDimension() + " but this query has bytesPerDim=" + bytesPerDim);
         }
 
         boolean allDocsMatch;
-        if (values.getDocCount(field) == reader.maxDoc()) {
-          final byte[] fieldPackedLower = values.getMinPackedValue(field);
-          final byte[] fieldPackedUpper = values.getMaxPackedValue(field);
+        if (values.getDocCount() == reader.maxDoc()) {
+          final byte[] fieldPackedLower = values.getMinPackedValue();
+          final byte[] fieldPackedUpper = values.getMaxPackedValue();
           allDocsMatch = true;
           for (int i = 0; i < numDims; ++i) {
             int offset = i * bytesPerDim;
@@ -285,8 +281,8 @@ public abstract class PointRangeQuery extends Query {
 
             @Override
             public Scorer get(boolean randomAccess) throws IOException {
-              if (values.getDocCount(field) == reader.maxDoc()
-                  && values.getDocCount(field) == values.size(field)
+              if (values.getDocCount() == reader.maxDoc()
+                  && values.getDocCount() == values.size()
                   && cost() > reader.maxDoc() / 2) {
                 // If all docs have exactly one value and the cost is greater
                 // than half the leaf size then maybe we can make things faster
@@ -294,12 +290,12 @@ public abstract class PointRangeQuery extends Query {
                 final FixedBitSet result = new FixedBitSet(reader.maxDoc());
                 result.set(0, reader.maxDoc());
                 int[] cost = new int[] { reader.maxDoc() };
-                values.intersect(field, getInverseIntersectVisitor(result, cost));
+                values.intersect(getInverseIntersectVisitor(result, cost));
                 final DocIdSetIterator iterator = new BitSetIterator(result, cost[0]);
                 return new ConstantScoreScorer(weight, score(), iterator);
               }
 
-              values.intersect(field, visitor);
+              values.intersect(visitor);
               DocIdSetIterator iterator = result.build().iterator();
               return new ConstantScoreScorer(weight, score(), iterator);
             }
@@ -308,7 +304,7 @@ public abstract class PointRangeQuery extends Query {
             public long cost() {
               if (cost == -1) {
                 // Computing the cost may be expensive, so only do it if necessary
-                cost = values.estimatePointCount(field, visitor);
+                cost = values.estimatePointCount(visitor);
                 assert cost >= 0;
               }
               return cost;

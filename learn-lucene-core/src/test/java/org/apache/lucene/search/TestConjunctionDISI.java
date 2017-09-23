@@ -341,7 +341,7 @@ public class TestConjunctionDISI extends LuceneTestCase {
         List<Scorer> subIterators = scorers.subList(subSeqStart, subSeqEnd);
         Scorer subConjunction;
         if (wrapWithScorer) {
-          subConjunction = new ConjunctionScorer(null, subIterators, Collections.emptyList(), 1f);
+          subConjunction = new ConjunctionScorer(null, subIterators, Collections.emptyList());
         } else {
           subConjunction = new ConstantScoreScorer(null, 0f, ConjunctionDISI.intersectScorers(subIterators));
         }

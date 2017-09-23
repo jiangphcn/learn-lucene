@@ -46,11 +46,12 @@ import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.packed.PackedInts;
 
 /**
+ * Concrete class that writes docId(maybe frq,pos,offset,payloads) list
+ * with postings format.
  *
- * 用于写入带有位置格式的docId(可能有频率、位置、偏移量、载荷)
+ * Postings list for each term will be stored separately. 
  *
- * 每个词项的位置列表将单独存储。
- * @see Lucene50SkipWriter  如何忽略功能和如何设置位置载荷.
+ * @see Lucene50SkipWriter for details about skipping setting and postings layout.
  * @lucene.experimental
  */
 public final class Lucene50PostingsWriter extends PushPostingsWriterBase {

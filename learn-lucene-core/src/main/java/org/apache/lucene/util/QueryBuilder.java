@@ -136,12 +136,12 @@ public class QueryBuilder {
     if (Float.isNaN(fraction) || fraction < 0 || fraction > 1) {
       throw new IllegalArgumentException("fraction should be >= 0 and <= 1");
     }
-
+    
     // TODO: weird that BQ equals/rewrite/scorer doesn't handle this?
     if (fraction == 1) {
       return createBooleanQuery(field, queryText, BooleanClause.Occur.MUST);
     }
-
+    
     Query query = createFieldQuery(analyzer, BooleanClause.Occur.SHOULD, field, queryText, false, 0);
     if (query instanceof BooleanQuery) {
       query = addMinShouldMatchToBoolean((BooleanQuery) query, fraction);
@@ -154,7 +154,6 @@ public class QueryBuilder {
    */
   private BooleanQuery addMinShouldMatchToBoolean(BooleanQuery query, float fraction) {
     BooleanQuery.Builder builder = new BooleanQuery.Builder();
-    builder.setDisableCoord(query.isCoordDisabled());
     builder.setMinimumNumberShouldMatch((int) (fraction * query.clauses().size()));
     for (BooleanClause clause : query) {
       builder.add(clause);
@@ -539,11 +538,7 @@ public class QueryBuilder {
         builder.add(queryPos, operator);
       }
     }
-    BooleanQuery bq =  builder.build();
-    if (bq.clauses().size() == 1) {
-      return bq.clauses().get(0).getQuery();
-    }
-    return bq;
+    return builder.build();
   }
 
   /**

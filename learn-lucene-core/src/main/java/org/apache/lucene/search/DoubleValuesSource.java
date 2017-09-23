@@ -20,14 +20,11 @@ package org.apache.lucene.search;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.function.DoubleToLongFunction;
-import java.util.function.DoubleUnaryOperator;
 import java.util.function.LongToDoubleFunction;
-import java.util.function.ToDoubleBiFunction;
 
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NumericDocValues;
-import org.apache.lucene.util.Bits;
 
 /**
  * Base class for producing {@link DoubleValues}
@@ -60,6 +57,21 @@ public abstract class DoubleValuesSource {
   public abstract boolean needsScores();
 
   /**
+   * An explanation of the value for the named document.
+   *
+   * @param ctx the readers context to create the {@link Explanation} for.
+   * @param docId the document's id relative to the given context's reader
+   * @return an Explanation for the value
+   * @throws IOException if an {@link IOException} occurs
+   */
+  public Explanation explain(LeafReaderContext ctx, int docId, Explanation scoreExplanation) throws IOException {
+    DoubleValues dv = getValues(ctx, DoubleValuesSource.constant(scoreExplanation.getValue()).getValues(ctx, null));
+    if (dv.advanceExact(docId))
+      return Explanation.match((float) dv.doubleValue(), this.toString());
+    return Explanation.noMatch(this.toString());
+  }
+
+  /**
    * Create a sort field based on the value of this producer
    * @param reverse true if the sort should be decreasing
    */
@@ -67,14 +79,33 @@ public abstract class DoubleValuesSource {
     return new DoubleValuesSortField(this, reverse);
   }
 
+  @Override
+  public abstract int hashCode();
+
+  @Override
+  public abstract boolean equals(Object obj);
+
+  @Override
+  public abstract String toString();
+
   /**
    * Convert to a LongValuesSource by casting the double values to longs
    */
   public final LongValuesSource toLongValuesSource() {
-    return new LongValuesSource() {
-      @Override
+    return new LongDoubleValuesSource(this);
+  }
+
+  private static class LongDoubleValuesSource extends LongValuesSource {
+
+    private final DoubleValuesSource inner;
+
+    private LongDoubleValuesSource(DoubleValuesSource inner) {
+      this.inner = inner;
+    }
+
+    @Override
       public LongValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
-        DoubleValues in = DoubleValuesSource.this.getValues(ctx, scores);
+        DoubleValues in = inner.getValues(ctx, scores);
         return new LongValues() {
           @Override
           public long longValue() throws IOException {
@@ -90,9 +121,27 @@ public abstract class DoubleValuesSource {
 
       @Override
       public boolean needsScores() {
-        return DoubleValuesSource.this.needsScores();
+        return inner.needsScores();
       }
-    };
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      LongDoubleValuesSource that = (LongDoubleValuesSource) o;
+      return Objects.equals(inner, that.inner);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(inner);
+    }
+
+    @Override
+    public String toString() {
+      return "long(" + inner.toString() + ")";
+    }
+
   }
 
   /**
@@ -150,96 +199,85 @@ public abstract class DoubleValuesSource {
     public boolean needsScores() {
       return true;
     }
+
+    @Override
+    public Explanation explain(LeafReaderContext ctx, int docId, Explanation scoreExplanation) {
+      return scoreExplanation;
+    }
+
+    @Override
+    public int hashCode() {
+      return 0;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      return obj == this;
+    }
+
+    @Override
+    public String toString() {
+      return "scores";
+    }
   };
 
   /**
    * Creates a DoubleValuesSource that always returns a constant value
    */
   public static DoubleValuesSource constant(double value) {
-    return new DoubleValuesSource() {
-      @Override
-      public DoubleValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
-        return new DoubleValues() {
-          @Override
-          public double doubleValue() throws IOException {
-            return value;
-          }
-
-          @Override
-          public boolean advanceExact(int doc) throws IOException {
-            return true;
-          }
-        };
-      }
-
-      @Override
-      public boolean needsScores() {
-        return false;
-      }
-
-      @Override
-      public String toString() {
-        return "constant(" + value + ")";
-      }
-    };
+    return new ConstantValuesSource(value);
   }
 
-  /**
-   * Creates a DoubleValuesSource that is a function of another DoubleValuesSource
-   */
-  public static DoubleValuesSource function(DoubleValuesSource in, DoubleUnaryOperator function) {
-    return new DoubleValuesSource() {
-      @Override
-      public DoubleValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
-        DoubleValues inputs = in.getValues(ctx, scores);
-        return new DoubleValues() {
-          @Override
-          public double doubleValue() throws IOException {
-            return function.applyAsDouble(inputs.doubleValue());
-          }
+  private static class ConstantValuesSource extends DoubleValuesSource {
 
-          @Override
-          public boolean advanceExact(int doc) throws IOException {
-            return inputs.advanceExact(doc);
-          }
-        };
-      }
+    private final double value;
 
-      @Override
-      public boolean needsScores() {
-        return in.needsScores();
-      }
-    };
-  }
+    private ConstantValuesSource(double value) {
+      this.value = value;
+    }
 
-  /**
-   * Creates a DoubleValuesSource that is a function of another DoubleValuesSource and a score
-   * @param in        the DoubleValuesSource to use as an input
-   * @param function  a function of the form (source, score) == result
-   */
-  public static DoubleValuesSource scoringFunction(DoubleValuesSource in, ToDoubleBiFunction<Double, Double> function) {
-    return new DoubleValuesSource() {
-      @Override
-      public DoubleValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
-        DoubleValues inputs = in.getValues(ctx, scores);
-        return new DoubleValues() {
-          @Override
-          public double doubleValue() throws IOException {
-            return function.applyAsDouble(inputs.doubleValue(), scores.doubleValue());
-          }
+    @Override
+    public DoubleValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
+      return new DoubleValues() {
+        @Override
+        public double doubleValue() throws IOException {
+          return value;
+        }
 
-          @Override
-          public boolean advanceExact(int doc) throws IOException {
-            return inputs.advanceExact(doc);
-          }
-        };
-      }
+        @Override
+        public boolean advanceExact(int doc) throws IOException {
+          return true;
+        }
+      };
+    }
 
-      @Override
-      public boolean needsScores() {
-        return true;
-      }
-    };
+    @Override
+    public boolean needsScores() {
+      return false;
+    }
+
+    @Override
+    public Explanation explain(LeafReaderContext ctx, int docId, Explanation scoreExplanation) {
+      return Explanation.match((float) value, "constant(" + value + ")");
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(value);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      ConstantValuesSource that = (ConstantValuesSource) o;
+      return Double.compare(that.value, value) == 0;
+    }
+
+    @Override
+    public String toString() {
+      return "constant(" + value + ")";
+    }
   }
 
   /**
@@ -280,6 +318,11 @@ public abstract class DoubleValuesSource {
     }
 
     @Override
+    public String toString() {
+      return "double(" + field + ")";
+    }
+
+    @Override
     public int hashCode() {
       return Objects.hash(field, decoder);
     }
@@ -287,13 +330,31 @@ public abstract class DoubleValuesSource {
     @Override
     public DoubleValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
       final NumericDocValues values = DocValues.getNumeric(ctx.reader(), field);
-      final Bits matchingBits = DocValues.getDocsWithField(ctx.reader(), field);
-      return toDoubleValues(values, matchingBits, decoder::applyAsDouble);
+      return new DoubleValues() {
+        @Override
+        public double doubleValue() throws IOException {
+          return decoder.applyAsDouble(values.longValue());
+        }
+
+        @Override
+        public boolean advanceExact(int target) throws IOException {
+          return values.advanceExact(target);
+        }
+      };
     }
 
     @Override
     public boolean needsScores() {
       return false;
+    }
+
+    @Override
+    public Explanation explain(LeafReaderContext ctx, int docId, Explanation scoreExplanation) throws IOException {
+      DoubleValues values = getValues(ctx, null);
+      if (values.advanceExact(docId))
+        return Explanation.match((float)values.doubleValue(), this.toString());
+      else
+        return Explanation.noMatch(this.toString());
     }
   }
 
@@ -344,7 +405,7 @@ public abstract class DoubleValuesSource {
         @Override
         protected NumericDocValues getNumericDocValues(LeafReaderContext context, String field) throws IOException {
           ctx = context;
-          return asNumericDocValues(holder, missingValue, Double::doubleToLongBits);
+          return asNumericDocValues(holder, Double::doubleToLongBits);
         }
 
         @Override
@@ -355,40 +416,37 @@ public abstract class DoubleValuesSource {
     }
   }
 
-  private static DoubleValues toDoubleValues(NumericDocValues in, Bits matchingBits, LongToDoubleFunction map) {
-    return new DoubleValues() {
-
-      int current = -1;
-
+  private static NumericDocValues asNumericDocValues(DoubleValuesHolder in, DoubleToLongFunction converter) {
+    return new NumericDocValues() {
       @Override
-      public double doubleValue() throws IOException {
-        return map.applyAsDouble(in.get(current));
+      public long longValue() throws IOException {
+        return converter.applyAsLong(in.values.doubleValue());
       }
 
       @Override
       public boolean advanceExact(int target) throws IOException {
-        current = target;
-        return matchingBits.get(target);
+        return in.values.advanceExact(target);
       }
 
-    };
-  }
-
-  private static NumericDocValues asNumericDocValues(DoubleValuesHolder in, Double missingValue, DoubleToLongFunction converter) {
-    long missing = converter.applyAsLong(missingValue);
-    return new NumericDocValues() {
       @Override
-      public long get(int docID) {
-        try {
-          if (in.values.advanceExact(docID))
-            return converter.applyAsLong(in.values.doubleValue());
-        }
-        catch (IOException e) {
-          throw new RuntimeException(e);
-        }
-        return missing;
+      public int docID() {
+        throw new UnsupportedOperationException();
       }
 
+      @Override
+      public int nextDoc() throws IOException {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public int advance(int target) throws IOException {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public long cost() {
+        throw new UnsupportedOperationException();
+      }
     };
   }
 

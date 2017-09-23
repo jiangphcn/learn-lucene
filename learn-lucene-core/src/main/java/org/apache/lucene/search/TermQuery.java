@@ -49,8 +49,8 @@ public class TermQuery extends Query {
     private final TermContext termStates;
     private final boolean needsScores;
 
-    public TermWeight(IndexSearcher searcher, boolean needsScores, TermContext termStates)
-        throws IOException {
+    public TermWeight(IndexSearcher searcher, boolean needsScores,
+        float boost, TermContext termStates) throws IOException {
       super(TermQuery.this);
       if (needsScores && termStates == null) {
         throw new IllegalStateException("termStates are required when scores are needed");
@@ -71,7 +71,7 @@ public class TermQuery extends Query {
         termStats = new TermStatistics(term.bytes(), maxDoc, -1);
       }
      
-      this.stats = similarity.computeWeight(collectionStats, termStats);
+      this.stats = similarity.computeWeight(boost, collectionStats, termStats);
     }
 
     @Override
@@ -82,16 +82,6 @@ public class TermQuery extends Query {
     @Override
     public String toString() {
       return "weight(" + TermQuery.this + ")";
-    }
-
-    @Override
-    public float getValueForNormalization() {
-      return stats.getValueForNormalization();
-    }
-
-    @Override
-    public void normalize(float queryNorm, float boost) {
-      stats.normalize(queryNorm, boost);
     }
 
     @Override
@@ -187,7 +177,7 @@ public class TermQuery extends Query {
   }
 
   @Override
-  public Weight createWeight(IndexSearcher searcher, boolean needsScores) throws IOException {
+  public Weight createWeight(IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
     final IndexReaderContext context = searcher.getTopReaderContext();
     final TermContext termState;
     if (perReaderTermState == null
@@ -206,7 +196,7 @@ public class TermQuery extends Query {
       termState = this.perReaderTermState;
     }
 
-    return new TermWeight(searcher, needsScores, termState);
+    return new TermWeight(searcher, needsScores, boost, termState);
   }
 
   /** Prints a user-readable version of this query. */

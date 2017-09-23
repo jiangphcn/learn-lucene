@@ -48,21 +48,15 @@ public class BooleanSimilarity extends Similarity {
   }
 
   @Override
-  public SimWeight computeWeight(CollectionStatistics collectionStats, TermStatistics... termStats) {
-    return new BooleanWeight();
+  public SimWeight computeWeight(float boost, CollectionStatistics collectionStats, TermStatistics... termStats) {
+    return new BooleanWeight(boost);
   }
 
   private static class BooleanWeight extends SimWeight {
-    float boost = 1f;
+    final float boost;
 
-    @Override
-    public void normalize(float queryNorm, float boost) {
+    BooleanWeight(float boost) {
       this.boost = boost;
-    }
-
-    @Override
-    public float getValueForNormalization() {
-      return boost * boost;
     }
   }
 
@@ -73,12 +67,12 @@ public class BooleanSimilarity extends Similarity {
     return new SimScorer() {
 
       @Override
-      public float score(int doc, float freq) {
+      public float score(int doc, float freq) throws IOException {
         return boost;
       }
 
       @Override
-      public Explanation explain(int doc, Explanation freq) {
+      public Explanation explain(int doc, Explanation freq) throws IOException {
         Explanation queryBoostExpl = Explanation.match(boost, "query boost");
         return Explanation.match(
             queryBoostExpl.getValue(),

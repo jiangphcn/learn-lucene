@@ -29,6 +29,8 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.MockAnalyzer;
@@ -75,13 +77,14 @@ import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TopFieldCollector;
 import org.apache.lucene.search.similarities.Similarity;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.NumericUtils;
 import org.apache.lucene.util.TestUtil;
+
+import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
 public class TestIndexSorting extends LuceneTestCase {
   static class AssertingNeedsIndexSortCodec extends FilterCodec {
@@ -295,9 +298,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     SortedDocValues values = leaf.getSortedDocValues("foo");
-    assertEquals("aaa", values.get(0).utf8ToString());
-    assertEquals("mmm", values.get(1).utf8ToString());
-    assertEquals("zzz", values.get(2).utf8ToString());
+    assertEquals(0, values.nextDoc());
+    assertEquals("aaa", values.binaryValue().utf8ToString());
+    assertEquals(1, values.nextDoc());
+    assertEquals("mmm", values.binaryValue().utf8ToString());
+    assertEquals(2, values.nextDoc());
+    assertEquals("zzz", values.binaryValue().utf8ToString());
     r.close();
     w.close();
     dir.close();
@@ -335,9 +341,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1l, values.get(0));
-    assertEquals(2l, values.get(1));
-    assertEquals(3l, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1l, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2l, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3l, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -370,9 +379,11 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     SortedDocValues values = leaf.getSortedDocValues("foo");
-    assertEquals(-1, values.getOrd(0));
-    assertEquals("mmm", values.get(1).utf8ToString());
-    assertEquals("zzz", values.get(2).utf8ToString());
+    // docID 0 is missing:
+    assertEquals(1, values.nextDoc());
+    assertEquals("mmm", values.binaryValue().utf8ToString());
+    assertEquals(2, values.nextDoc());
+    assertEquals("zzz", values.binaryValue().utf8ToString());
     r.close();
     w.close();
     dir.close();
@@ -412,9 +423,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1l, values.get(0));
-    assertEquals(2l, values.get(1));
-    assertEquals(3l, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1l, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2l, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3l, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -447,9 +461,11 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     SortedDocValues values = leaf.getSortedDocValues("foo");
-    assertEquals("mmm", values.get(0).utf8ToString());
-    assertEquals("zzz", values.get(1).utf8ToString());
-    assertEquals(-1, values.getOrd(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals("mmm", values.binaryValue().utf8ToString());
+    assertEquals(1, values.nextDoc());
+    assertEquals("zzz", values.binaryValue().utf8ToString());
+    assertEquals(NO_MORE_DOCS, values.nextDoc());
     r.close();
     w.close();
     dir.close();
@@ -488,9 +504,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1l, values.get(0));
-    assertEquals(2l, values.get(1));
-    assertEquals(3l, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1l, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2l, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3l, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -522,9 +541,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    assertEquals(-1, values.get(0));
-    assertEquals(7, values.get(1));
-    assertEquals(18, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(-1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(7, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(18, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -561,9 +583,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -596,11 +621,11 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    Bits docsWithField = leaf.getDocsWithField("foo");
-    assertEquals(0, values.get(0));
-    assertFalse(docsWithField.get(0));
-    assertEquals(7, values.get(1));
-    assertEquals(18, values.get(2));
+    // docID 0 has no value
+    assertEquals(1, values.nextDoc());
+    assertEquals(7, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(18, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -639,9 +664,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -674,8 +702,11 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    assertEquals(7, values.get(0));
-    assertEquals(18, values.get(1));
+    assertEquals(0, values.nextDoc());
+    assertEquals(7, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(18, values.longValue());
+    assertEquals(NO_MORE_DOCS, values.nextDoc());
     r.close();
     w.close();
     dir.close();
@@ -715,9 +746,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -749,9 +783,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    assertEquals(-1, values.get(0));
-    assertEquals(7, values.get(1));
-    assertEquals(18, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(-1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(7, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(18, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -790,9 +827,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -825,11 +865,10 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    Bits docsWithField = leaf.getDocsWithField("foo");
-    assertEquals(0, values.get(0));
-    assertFalse(docsWithField.get(0));
-    assertEquals(7, values.get(1));
-    assertEquals(18, values.get(2));
+    assertEquals(1, values.nextDoc());
+    assertEquals(7, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(18, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -868,9 +907,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -903,10 +945,11 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    Bits docsWithField = leaf.getDocsWithField("foo");
-    assertEquals(7, values.get(0));
-    assertEquals(18, values.get(1));
-    assertFalse(docsWithField.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(7, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(18, values.longValue());
+    assertEquals(NO_MORE_DOCS, values.nextDoc());
     r.close();
     w.close();
     dir.close();
@@ -945,9 +988,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -979,9 +1025,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    assertEquals(-1.0, Double.longBitsToDouble(values.get(0)), 0.0);
-    assertEquals(7.0, Double.longBitsToDouble(values.get(1)), 0.0);
-    assertEquals(18.0, Double.longBitsToDouble(values.get(2)), 0.0);
+    assertEquals(0, values.nextDoc());
+    assertEquals(-1.0, Double.longBitsToDouble(values.longValue()), 0.0);
+    assertEquals(1, values.nextDoc());
+    assertEquals(7.0, Double.longBitsToDouble(values.longValue()), 0.0);
+    assertEquals(2, values.nextDoc());
+    assertEquals(18.0, Double.longBitsToDouble(values.longValue()), 0.0);
     r.close();
     w.close();
     dir.close();
@@ -1019,9 +1068,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -1054,11 +1106,10 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    Bits docsWithField = leaf.getDocsWithField("foo");
-    assertEquals(0.0, Double.longBitsToDouble(values.get(0)), 0.0);
-    assertFalse(docsWithField.get(0));
-    assertEquals(7.0, Double.longBitsToDouble(values.get(1)), 0.0);
-    assertEquals(18.0, Double.longBitsToDouble(values.get(2)), 0.0);
+    assertEquals(1, values.nextDoc());
+    assertEquals(7.0, Double.longBitsToDouble(values.longValue()), 0.0);
+    assertEquals(2, values.nextDoc());
+    assertEquals(18.0, Double.longBitsToDouble(values.longValue()), 0.0);
     r.close();
     w.close();
     dir.close();
@@ -1097,9 +1148,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -1132,11 +1186,11 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    Bits docsWithField = leaf.getDocsWithField("foo");
-    assertEquals(7.0, Double.longBitsToDouble(values.get(0)), 0.0);
-    assertEquals(18.0, Double.longBitsToDouble(values.get(1)), 0.0);
-    assertEquals(0.0, Double.longBitsToDouble(values.get(2)), 0.0);
-    assertFalse(docsWithField.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(7.0, Double.longBitsToDouble(values.longValue()), 0.0);
+    assertEquals(1, values.nextDoc());
+    assertEquals(18.0, Double.longBitsToDouble(values.longValue()), 0.0);
+    assertEquals(NO_MORE_DOCS, values.nextDoc());
     r.close();
     w.close();
     dir.close();
@@ -1175,9 +1229,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -1209,9 +1266,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    assertEquals(-1.0, Float.intBitsToFloat((int) values.get(0)), 0.0);
-    assertEquals(7.0, Float.intBitsToFloat((int) values.get(1)), 0.0);
-    assertEquals(18.0, Float.intBitsToFloat((int) values.get(2)), 0.0);
+    assertEquals(0, values.nextDoc());
+    assertEquals(-1.0f, Float.intBitsToFloat((int) values.longValue()), 0.0f);
+    assertEquals(1, values.nextDoc());
+    assertEquals(7.0f, Float.intBitsToFloat((int) values.longValue()), 0.0f);
+    assertEquals(2, values.nextDoc());
+    assertEquals(18.0f, Float.intBitsToFloat((int) values.longValue()), 0.0f);
     r.close();
     w.close();
     dir.close();
@@ -1248,9 +1308,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -1283,11 +1346,10 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    Bits docsWithField = leaf.getDocsWithField("foo");
-    assertEquals(0.0f, Float.intBitsToFloat((int) values.get(0)), 0.0f);
-    assertFalse(docsWithField.get(0));
-    assertEquals(7.0f, Float.intBitsToFloat((int) values.get(1)), 0.0f);
-    assertEquals(18.0f, Float.intBitsToFloat((int) values.get(2)), 0.0f);
+    assertEquals(1, values.nextDoc());
+    assertEquals(7.0f, Float.intBitsToFloat((int) values.longValue()), 0.0f);
+    assertEquals(2, values.nextDoc());
+    assertEquals(18.0f, Float.intBitsToFloat((int) values.longValue()), 0.0f);
     r.close();
     w.close();
     dir.close();
@@ -1326,9 +1388,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -1361,11 +1426,11 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("foo");
-    Bits docsWithField = leaf.getDocsWithField("foo");
-    assertEquals(7.0f, Float.intBitsToFloat((int) values.get(0)), 0.0f);
-    assertEquals(18.0f, Float.intBitsToFloat((int) values.get(1)), 0.0f);
-    assertEquals(0.0f, Float.intBitsToFloat((int) values.get(2)), 0.0f);
-    assertFalse(docsWithField.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(7.0f, Float.intBitsToFloat((int) values.longValue()), 0.0f);
+    assertEquals(1, values.nextDoc());
+    assertEquals(18.0f, Float.intBitsToFloat((int) values.longValue()), 0.0f);
+    assertEquals(NO_MORE_DOCS, values.nextDoc());
     r.close();
     w.close();
     dir.close();
@@ -1404,9 +1469,12 @@ public class TestIndexSorting extends LuceneTestCase {
     LeafReader leaf = getOnlyLeafReader(r);
     assertEquals(3, leaf.maxDoc());
     NumericDocValues values = leaf.getNumericDocValues("id");
-    assertEquals(1, values.get(0));
-    assertEquals(2, values.get(1));
-    assertEquals(3, values.get(2));
+    assertEquals(0, values.nextDoc());
+    assertEquals(1, values.longValue());
+    assertEquals(1, values.nextDoc());
+    assertEquals(2, values.longValue());
+    assertEquals(2, values.nextDoc());
+    assertEquals(3, values.longValue());
     r.close();
     w.close();
     dir.close();
@@ -1450,7 +1518,8 @@ public class TestIndexSorting extends LuceneTestCase {
           final NumericDocValues values = leaf.getNumericDocValues("foo");
           long previous = Long.MIN_VALUE;
           for (int i = 0; i < leaf.maxDoc(); ++i) {
-            final long value = values.get(i);
+            assertEquals(i, values.nextDoc());
+            final long value = values.longValue();
             assertTrue(value >= previous);
             previous = value;
           }
@@ -1469,7 +1538,9 @@ public class TestIndexSorting extends LuceneTestCase {
         assertEquals(0, topDocs.totalHits);
       } else {
         assertEquals(1, topDocs.totalHits);
-        assertEquals(i, MultiDocValues.getNumericValues(reader, "id").get(topDocs.scoreDocs[0].doc));
+        NumericDocValues values = MultiDocValues.getNumericValues(reader, "id");
+        assertEquals(topDocs.scoreDocs[0].doc, values.advance(topDocs.scoreDocs[0].doc));
+        assertEquals(i, values.longValue());
         Document document = reader.document(topDocs.scoreDocs[0].doc);
         assertEquals(Integer.toString(i), document.get("id"));
       }
@@ -1489,21 +1560,11 @@ public class TestIndexSorting extends LuceneTestCase {
     IndexWriter w = new IndexWriter(dir, iwc);
     final int numDocs = atLeast(1000);
     final FixedBitSet deleted = new FixedBitSet(numDocs);
-    if (VERBOSE) {
-      System.out.println("TEST: " + numDocs + " docs");
-    }
     for (int i = 0; i < numDocs; ++i) {
       Document doc = new Document();
       int num = random().nextInt(10);
-      if (VERBOSE) {
-        System.out.println("doc id=" + i + " count=" + num);
-      }
       for (int j = 0; j < num; j++) {
-        int n = random().nextInt(2000);
-        if (VERBOSE) {
-          System.out.println("  " + n);
-        }
-        doc.add(new SortedNumericDocValuesField("foo", n));
+        doc.add(new SortedNumericDocValuesField("foo", random().nextInt(2000)));
       }
       doc.add(new StringField("id", Integer.toString(i), Store.YES));
       doc.add(new NumericDocValuesField("id", i));
@@ -1516,9 +1577,6 @@ public class TestIndexSorting extends LuceneTestCase {
         final int id = TestUtil.nextInt(random(), 0, i);
         deleted.set(id);
         w.deleteDocuments(new Term("id", Integer.toString(id)));
-        if (VERBOSE) {
-          System.out.println("  delete doc id=" + id);
-        }
       }
     }
 
@@ -1533,7 +1591,8 @@ public class TestIndexSorting extends LuceneTestCase {
       } else {
         assertEquals(1, topDocs.totalHits);
         NumericDocValues values = MultiDocValues.getNumericValues(reader, "id");
-        assertEquals(i, MultiDocValues.getNumericValues(reader, "id").get(topDocs.scoreDocs[0].doc));
+        assertEquals(topDocs.scoreDocs[0].doc, values.advance(topDocs.scoreDocs[0].doc));
+        assertEquals(i, values.longValue());
         Document document = reader.document(topDocs.scoreDocs[0].doc);
         assertEquals(Integer.toString(i), document.get("id"));
       }
@@ -1630,7 +1689,10 @@ public class TestIndexSorting extends LuceneTestCase {
         assertEquals(0, topDocs.totalHits);
       } else {
         assertEquals(1, topDocs.totalHits);
-        assertEquals(values.get(i).longValue(), MultiDocValues.getNumericValues(reader, "foo").get(topDocs.scoreDocs[0].doc));
+        NumericDocValues dvs = MultiDocValues.getNumericValues(reader, "foo");
+        int docID = topDocs.scoreDocs[0].doc;
+        assertEquals(docID, dvs.advance(docID));
+        assertEquals(values.get(i).longValue(), dvs.longValue());
       }
     }
     reader.close();
@@ -1747,7 +1809,10 @@ public class TestIndexSorting extends LuceneTestCase {
     for (int i = 0; i < numDocs; ++i) {
       final TopDocs topDocs = searcher.search(new TermQuery(new Term("id", Integer.toString(i))), 1);
       assertEquals(1, topDocs.totalHits);
-      assertEquals(values.get(i).longValue(), MultiDocValues.getNumericValues(reader, "bar").get(topDocs.scoreDocs[0].doc));
+      NumericDocValues dvs = MultiDocValues.getNumericValues(reader, "bar");
+      int hitDoc = topDocs.scoreDocs[0].doc;
+      assertEquals(hitDoc, dvs.advance(hitDoc));
+      assertEquals(values.get(i).longValue(), dvs.longValue());
     }
     reader.close();
     w.close();
@@ -1803,9 +1868,15 @@ public class TestIndexSorting extends LuceneTestCase {
       final TopDocs topDocs2 = searcher2.search(query, 1);
       assertEquals(topDocs.totalHits, topDocs2.totalHits);
       if (topDocs.totalHits == 1) {
-        assertEquals(
-            MultiDocValues.getNumericValues(reader, "foo").get(topDocs.scoreDocs[0].doc),
-            MultiDocValues.getNumericValues(reader2, "foo").get(topDocs2.scoreDocs[0].doc));
+        NumericDocValues dvs1 = MultiDocValues.getNumericValues(reader, "foo");
+        int hitDoc1 = topDocs.scoreDocs[0].doc;
+        assertEquals(hitDoc1, dvs1.advance(hitDoc1));
+        long value1 = dvs1.longValue();
+        NumericDocValues dvs2 = MultiDocValues.getNumericValues(reader2, "foo");
+        int hitDoc2 = topDocs2.scoreDocs[0].doc;
+        assertEquals(hitDoc2, dvs2.advance(hitDoc2));
+        long value2 = dvs2.longValue();
+        assertEquals(value1, value2);
       }
     }
 
@@ -1870,15 +1941,15 @@ public class TestIndexSorting extends LuceneTestCase {
     @Override
     public long computeNorm(FieldInvertState state) {
       if (state.getName().equals("norms")) {
-        return Float.floatToIntBits(state.getBoost());
+        return state.getLength();
       } else {
         return in.computeNorm(state);
       }
     }
 
     @Override
-    public SimWeight computeWeight(CollectionStatistics collectionStats, TermStatistics... termStats) {
-      return in.computeWeight(collectionStats, termStats);
+    public SimWeight computeWeight(float boost, CollectionStatistics collectionStats, TermStatistics... termStats) {
+      return in.computeWeight(boost, collectionStats, termStats);
     }
 
     @Override
@@ -1952,8 +2023,8 @@ public class TestIndexSorting extends LuceneTestCase {
       positions.setId(id);
       doc.add(new Field("positions", positions, POSITIONS_TYPE));
       doc.add(new NumericDocValuesField("numeric", id));
-      TextField norms = new TextField("norms", Integer.toString(id), Store.NO);
-      norms.setBoost(Float.intBitsToFloat(id));
+      String value = IntStream.range(0, id).mapToObj(k -> Integer.toString(id)).collect(Collectors.joining(" "));
+      TextField norms = new TextField("norms", value, Store.NO);
       doc.add(norms);
       doc.add(new BinaryDocValuesField("binary", new BytesRef(Integer.toString(id))));
       doc.add(new SortedDocValuesField("sorted", new BytesRef(Integer.toString(id))));
@@ -2023,7 +2094,7 @@ public class TestIndexSorting extends LuceneTestCase {
     if (VERBOSE) {
       System.out.println("TEST: now compare r1=" + r1 + " r2=" + r2);
     }
-    assertEquals(sort, getOnlyLeafReader(r2).getIndexSort());
+    assertEquals(sort, getOnlyLeafReader(r2).getMetaData().getSort());
     assertReaderEquals("left: sorted by hand; right: sorted by Lucene", r1, r2);
     IOUtils.close(w1, w2, r1, r2, dir1, dir2);
   }
@@ -2341,7 +2412,6 @@ public class TestIndexSorting extends LuceneTestCase {
     iwc.setIndexSort(indexSort);
     IndexWriter w = new IndexWriter(dir, iwc);
     Field textField = newTextField("sparse_text", "", Field.Store.NO);
-
     for (int i = 0; i < 128; i++) {
       Document doc = new Document();
       doc.add(new NumericDocValuesField("dense_int", i));
@@ -2358,25 +2428,26 @@ public class TestIndexSorting extends LuceneTestCase {
     DirectoryReader r = DirectoryReader.open(w);
     assertEquals(1, r.leaves().size());
     LeafReader leafReader = r.leaves().get(0).reader();
+
     NumericDocValues denseValues = leafReader.getNumericDocValues("dense_int");
     NumericDocValues sparseValues = leafReader.getNumericDocValues("sparse_int");
     BinaryDocValues sparseBinaryValues = leafReader.getBinaryDocValues("sparse_binary");
     NumericDocValues normsValues = leafReader.getNormValues("sparse_text");
-
-    Bits docsWithField = leafReader.getDocsWithField("sparse_int");
-    Bits docsWithBinaryField = leafReader.getDocsWithField("sparse_binary");
     for(int docID = 0; docID < 128; docID++) {
-      assertEquals(127-docID, denseValues.get(docID));
+      assertTrue(denseValues.advanceExact(docID));
+      assertEquals(127-docID, (int) denseValues.longValue());
       if (docID >= 64) {
-        assertTrue(docsWithField.get(docID));
-        assertTrue(docsWithBinaryField.get(docID));
-        assertEquals(127-docID, sparseValues.get(docID));
-        assertEquals(new BytesRef(Integer.toString(127-docID)), sparseBinaryValues.get(docID));
-        assertEquals(124, normsValues.get(docID));
+        assertTrue(denseValues.advanceExact(docID));
+        assertTrue(sparseValues.advanceExact(docID));
+        assertTrue(sparseBinaryValues.advanceExact(docID));
+        assertTrue(normsValues.advanceExact(docID));
+        assertEquals(1, normsValues.longValue());
+        assertEquals(127-docID, (int) sparseValues.longValue());
+        assertEquals(new BytesRef(Integer.toString(127-docID)), sparseBinaryValues.binaryValue());
       } else {
-        assertFalse(docsWithField.get(docID));
-        assertFalse(docsWithBinaryField.get(docID));
-        assertEquals(0, normsValues.get(docID));
+        assertFalse(sparseBinaryValues.advanceExact(docID));
+        assertFalse(sparseValues.advanceExact(docID));
+        assertFalse(normsValues.advanceExact(docID));
       }
     }
     IOUtils.close(r, w, dir);
@@ -2403,13 +2474,12 @@ public class TestIndexSorting extends LuceneTestCase {
     assertEquals(1, r.leaves().size());
     LeafReader leafReader = r.leaves().get(0).reader();
     NumericDocValues sparseValues = leafReader.getNumericDocValues("sparse");
-    Bits docsWithField = r.leaves().get(0).reader().getDocsWithField("sparse");
     for(int docID = 0; docID < 128; docID++) {
       if (docID >= 64) {
-        assertTrue(docsWithField.get(docID));
-        assertEquals(docID-64, sparseValues.get(docID));
+        assertTrue(sparseValues.advanceExact(docID));
+        assertEquals(docID-64, (int) sparseValues.longValue());
       } else {
-        assertFalse(docsWithField.get(docID));
+        assertFalse(sparseValues.advanceExact(docID));
       }
     }
     IOUtils.close(r, w, dir);

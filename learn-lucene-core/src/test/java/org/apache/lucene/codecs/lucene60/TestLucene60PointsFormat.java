@@ -126,12 +126,12 @@ public class TestLucene60PointsFormat extends BasePointsFormatTestCase {
     final IndexReader r = DirectoryReader.open(w);
     w.close();
     final LeafReader lr = getOnlyLeafReader(r);
-    PointValues points = lr.getPointValues();
+    PointValues points = lr.getPointValues("f");
 
     // If all points match, then the point count is numLeaves * maxPointsInLeafNode
     final int numLeaves = (int) Math.ceil((double) numDocs / maxPointsInLeafNode);
     assertEquals(numLeaves * maxPointsInLeafNode,
-        points.estimatePointCount("f", new IntersectVisitor() {
+        points.estimatePointCount(new IntersectVisitor() {
           @Override
           public void visit(int docID, byte[] packedValue) throws IOException {}
           
@@ -146,7 +146,7 @@ public class TestLucene60PointsFormat extends BasePointsFormatTestCase {
 
     // Return 0 if no points match
     assertEquals(0,
-        points.estimatePointCount("f", new IntersectVisitor() {
+        points.estimatePointCount(new IntersectVisitor() {
           @Override
           public void visit(int docID, byte[] packedValue) throws IOException {}
           
@@ -161,7 +161,7 @@ public class TestLucene60PointsFormat extends BasePointsFormatTestCase {
 
     // If only one point matches, then the point count is (maxPointsInLeafNode + 1) / 2
     // in general, or maybe 2x that if the point is a split value
-    final long pointCount = points.estimatePointCount("f", new IntersectVisitor() {
+    final long pointCount = points.estimatePointCount(new IntersectVisitor() {
           @Override
           public void visit(int docID, byte[] packedValue) throws IOException {}
           
@@ -216,7 +216,7 @@ public class TestLucene60PointsFormat extends BasePointsFormatTestCase {
     final IndexReader r = DirectoryReader.open(w);
     w.close();
     final LeafReader lr = getOnlyLeafReader(r);
-    PointValues points = lr.getPointValues();
+    PointValues points = lr.getPointValues("f");
 
     // With >1 dims, the tree is balanced
     int actualMaxPointsInLeafNode = numDocs;
@@ -227,7 +227,7 @@ public class TestLucene60PointsFormat extends BasePointsFormatTestCase {
     // If all points match, then the point count is numLeaves * maxPointsInLeafNode
     final int numLeaves = Integer.highestOneBit((numDocs - 1) / actualMaxPointsInLeafNode) << 1;
     assertEquals(numLeaves * actualMaxPointsInLeafNode,
-        points.estimatePointCount("f", new IntersectVisitor() {
+        points.estimatePointCount(new IntersectVisitor() {
           @Override
           public void visit(int docID, byte[] packedValue) throws IOException {}
           
@@ -242,7 +242,7 @@ public class TestLucene60PointsFormat extends BasePointsFormatTestCase {
 
     // Return 0 if no points match
     assertEquals(0,
-        points.estimatePointCount("f", new IntersectVisitor() {
+        points.estimatePointCount(new IntersectVisitor() {
           @Override
           public void visit(int docID, byte[] packedValue) throws IOException {}
           
@@ -257,24 +257,24 @@ public class TestLucene60PointsFormat extends BasePointsFormatTestCase {
 
     // If only one point matches, then the point count is (actualMaxPointsInLeafNode + 1) / 2
     // in general, or maybe 2x that if the point is a split value
-    final long pointCount = points.estimatePointCount("f", new IntersectVisitor() {
-      @Override
-      public void visit(int docID, byte[] packedValue) throws IOException {}
-
-      @Override
-      public void visit(int docID) throws IOException {}
-
-      @Override
-      public Relation compare(byte[] minPackedValue, byte[] maxPackedValue) {
-        for (int dim = 0; dim < 2; ++dim) {
-          if (StringHelper.compare(3, uniquePointValue[dim], 0, maxPackedValue, dim * 3) > 0 ||
-              StringHelper.compare(3, uniquePointValue[dim], 0, minPackedValue, dim * 3) < 0) {
-            return Relation.CELL_OUTSIDE_QUERY;
+    final long pointCount = points.estimatePointCount(new IntersectVisitor() {
+        @Override
+        public void visit(int docID, byte[] packedValue) throws IOException {}
+        
+        @Override
+        public void visit(int docID) throws IOException {}
+        
+        @Override
+        public Relation compare(byte[] minPackedValue, byte[] maxPackedValue) {
+          for (int dim = 0; dim < 2; ++dim) {
+            if (StringHelper.compare(3, uniquePointValue[dim], 0, maxPackedValue, dim * 3) > 0 ||
+                StringHelper.compare(3, uniquePointValue[dim], 0, minPackedValue, dim * 3) < 0) {
+              return Relation.CELL_OUTSIDE_QUERY;
+            }
           }
+          return Relation.CELL_CROSSES_QUERY;
         }
-        return Relation.CELL_CROSSES_QUERY;
-      }
-    });
+      });
     assertTrue(""+pointCount,
         pointCount == (actualMaxPointsInLeafNode + 1) / 2 || // common case
         pointCount == 2*((actualMaxPointsInLeafNode + 1) / 2)); // if the point is a split value

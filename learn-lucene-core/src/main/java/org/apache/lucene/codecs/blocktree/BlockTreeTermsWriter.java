@@ -48,7 +48,6 @@ import org.apache.lucene.util.fst.ByteSequenceOutputs;
 import org.apache.lucene.util.fst.BytesRefFSTEnum;
 import org.apache.lucene.util.fst.FST;
 import org.apache.lucene.util.fst.Util;
-import org.apache.lucene.util.packed.PackedInts;
 
 /*
   TODO:
@@ -81,34 +80,36 @@ import org.apache.lucene.util.packed.PackedInts;
 */
 
 /**
- * 基于块的词项索引和词典writer.
- *
+ * Block-based terms index and dictionary writer.
  * <p>
- * 写词项词典和索引， 为两个索引词项之间的每组词项，块编码(column stride)所有词项元数据。
+ * Writes terms dict and index, block-encoding (column
+ * stride) each term's metadata for each set of terms
+ * between two index terms.
  * <p>
  *
- * 文件:
+ * Files:
  * <ul>
- *   <li><tt>.tim</tt>: <a href="#Termdictionary">词项词典</a></li>
- *   <li><tt>.tip</tt>: <a href="#Termindex">词项索引</a></li>
+ *   <li><tt>.tim</tt>: <a href="#Termdictionary">Term Dictionary</a></li>
+ *   <li><tt>.tip</tt>: <a href="#Termindex">Term Index</a></li>
  * </ul>
  * <p>
  * <a name="Termdictionary"></a>
- * <h3>词项词典</h3>
+ * <h3>Term Dictionary</h3>
  *
- * <p>
- *     .tim 文件包含每个Field的词项列表，连同每个词项的统计信息(例如文档频率)
- * 和每个词项的元数据(一般是该词项指向位置表的指针)
+ * <p>The .tim file contains the list of terms in each
+ * field along with per-term statistics (such as docfreq)
+ * and per-term metadata (typically pointers to the postings list
+ * for that term in the inverted index).
  * </p>
  *
- * <p>
- *     .tim 以块整理: 块包含一组可变数量的实体(默认25-48),每个实体可能是一个词项或者是子块的引用.
- * </p>
+ * <p>The .tim is arranged in blocks: with blocks containing
+ * a variable number of entries (by default 25-48), where
+ * each entry is either a term or a reference to a
+ * sub-block.</p>
  *
- * <p>
- *  注意: 词项词典可以扩展不同的位置实现:
- *  posting writer/reader实际上负责编码和解码位置元数据和部分词项元数据.
- * </p>
+ * <p>NOTE: The term dictionary can plug into different postings implementations:
+ * the postings writer/reader are actually responsible for encoding 
+ * and decoding the Postings Metadata and Term Metadata sections.</p>
  *
  * <ul>
  *    <li>TermsDict (.tim) --&gt; Header, <i>PostingsHeader</i>, NodeBlock<sup>NumBlocks</sup>,
@@ -128,36 +129,34 @@ import org.apache.lucene.util.packed.PackedInts;
  *        {@link DataOutput#writeVLong VLong}</li>
  *    <li>Footer --&gt; {@link CodecUtil#writeFooter CodecFooter}</li>
  * </ul>
- * <p>注意:</p>
+ * <p>Notes:</p>
  * <ul>
- *    <li>Header是{@link CodecUtil#writeHeader CodecHeader}，为BlockTree实现存储版本信息.</li>
- *    <li>DirOffset 是指向FieldSummary 的指针.</li>
- *    <li>DocFreq 是词项包含文档的数量.</li>
- *    <li>TotalTermFreq 是指词项出现的总数量.
- *      This is encoded as the difference between the total number of occurrences and the DocFreq.
- *    </li>
- *    <li>FieldNumber 是{@link FieldInfos}(.fnm)中的Field数量. </li>
- *    <li>NumTerms 是Field中去重后的Term的数量.</li>
- *    <li>RootCode 指向该Field的根块.</li>
- *    <li>SumDocFreq 位置总数量, 词项-文档对的总数量.
- *    </li>
- *    <li>DocCount 文档数量，至少在该field中出现过一次的文档。</li>
- *    <li>LongsSize 记录每个词项需要用多少long值来表示postings writer/reader记录。
- *        (例如, 持有 freq/prox/doc 文件偏移量).</li>
- *    <li>MinTerm, MaxTerm 该Field中，最小和做大的词项.</li>
- *    <li>PostingsHeader 和 TermMetadata 是特殊的位置实现扩展的信息:
- *        包含每个文件的数据(例如参数或版本信息)和每个词项的数据(例如倒排文件的指针)</li>
+ *    <li>Header is a {@link CodecUtil#writeHeader CodecHeader} storing the version information
+ *        for the BlockTree implementation.</li>
+ *    <li>DirOffset is a pointer to the FieldSummary section.</li>
+ *    <li>DocFreq is the count of documents which contain the term.</li>
+ *    <li>TotalTermFreq is the total number of occurrences of the term. This is encoded
+ *        as the difference between the total number of occurrences and the DocFreq.</li>
+ *    <li>FieldNumber is the fields number from {@link FieldInfos}. (.fnm)</li>
+ *    <li>NumTerms is the number of unique terms for the field.</li>
+ *    <li>RootCode points to the root block for the field.</li>
+ *    <li>SumDocFreq is the total number of postings, the number of term-document pairs across
+ *        the entire field.</li>
+ *    <li>DocCount is the number of documents that have at least one posting for this field.</li>
+ *    <li>LongsSize records how many long values the postings writer/reader record per term
+ *        (e.g., to hold freq/prox/doc file offsets).
+ *    <li>MinTerm, MaxTerm are the lowest and highest term in this field.</li>
+ *    <li>PostingsHeader and TermMetadata are plugged into by the specific postings implementation:
+ *        these contain arbitrary per-file data (such as parameters or versioning information) 
+ *        and per-term data (such as pointers to inverted files).</li>
  *    <li>For inner nodes of the tree, every entry will steal one bit to mark whether it points
  *        to child nodes(sub-block). If so, the corresponding TermStats and TermMetaData are omitted </li>
- *    <li>树中每一个节点, 每一个实体将占用1位来标识是否指向子节点(sub-block).
- *        假如这样的话，响应的TermStats 和 TermMetaData将被忽略.
  * </ul>
  * <a name="Termindex"></a>
  * <h3>Term Index</h3>
- * <p>.tip 文件:包含词项词典的索引,
- * 为了可以随机访问。该索引也用于判断给定的词项是否已经存在于磁盘上.
- * </p>
- *
+ * <p>The .tip file contains an index into the term dictionary, so that it can be 
+ * accessed randomly.  The index is also used to determine
+ * when a given term cannot exist on disk (in the .tim file), saving a disk seek.</p>
  * <ul>
  *   <li>TermsIndex (.tip) --&gt; Header, FSTIndex<sup>NumFields</sup>
  *                                &lt;IndexStartFP&gt;<sup>NumFields</sup>, DirOffset, Footer</li>
@@ -168,18 +167,22 @@ import org.apache.lucene.util.packed.PackedInts;
  *   <li>FSTIndex --&gt; {@link FST FST&lt;byte[]&gt;}</li>
  *   <li>Footer --&gt; {@link CodecUtil#writeFooter CodecFooter}</li>
  * </ul>
- * <p>注意:</p>
+ * <p>Notes:</p>
  * <ul>
- *   <li>.tip 文件包含每个field的独立的FST.
- *       FST维护了词项前缀与磁盘block的映射关系。
- *       每个Field的IndexStartFP指向自己的FST。
- *   </li>
- *   <li>
- *       DirOffset 指向所有Field的IndexStartFPs的开始位置.
- *   </li>
- *   <li>可能一个磁盘块包含太多词项(比最大数还大，默认最大数是48).
- *       如果发生这种情况，这个块会分为新块(称为“floor blocks”),接着，FST会编码子块的前面的字节和文件指针。
- *       sub-block, and its file pointer.</li>
+ *   <li>The .tip file contains a separate FST for each
+ *       field.  The FST maps a term prefix to the on-disk
+ *       block that holds all terms starting with that
+ *       prefix.  Each field's IndexStartFP points to its
+ *       FST.</li>
+ *   <li>DirOffset is a pointer to the start of the IndexStartFPs
+ *       for all fields</li>
+ *   <li>It's possible that an on-disk block would contain
+ *       too many terms (more than the allowed maximum
+ *       (default: 48)).  When this happens, the block is
+ *       sub-divided into new blocks (called "floor
+ *       blocks"), and then the output in the FST for the
+ *       block's prefix encodes the leading byte of each
+ *       sub-block, and its file pointer.
  * </ul>
  *
  * @see BlockTreeTermsReader
@@ -287,17 +290,18 @@ public final class BlockTreeTermsWriter extends FieldsConsumer {
     }
   }
 
-  /** 写入词项文件尾 */
+  /** Writes the terms file trailer. */
   private void writeTrailer(IndexOutput out, long dirStart) throws IOException {
     out.writeLong(dirStart);    
   }
 
-  /** 写入索引文件尾 */
+  /** Writes the index file trailer. */
   private void writeIndexTrailer(IndexOutput indexOut, long dirStart) throws IOException {
     indexOut.writeLong(dirStart);    
   }
 
-  /** 如果存在无效设置，抛出{@code IllegalArgumentException} . */
+  /** Throws {@code IllegalArgumentException} if any of these settings
+   *  is invalid. */
   public static void validateSettings(int minItemsInBlock, int maxItemsInBlock) {
     if (minItemsInBlock <= 1) {
       throw new IllegalArgumentException("minItemsInBlock must be >= 2; got " + minItemsInBlock);
@@ -451,8 +455,7 @@ public final class BlockTreeTermsWriter extends FieldsConsumer {
       final ByteSequenceOutputs outputs = ByteSequenceOutputs.getSingleton();
       final Builder<BytesRef> indexBuilder = new Builder<>(FST.INPUT_TYPE.BYTE1,
                                                            0, 0, true, false, Integer.MAX_VALUE,
-                                                           outputs, false,
-                                                           PackedInts.COMPACT, true, 15);
+                                                           outputs, true, 15);
       //if (DEBUG) {
       //  System.out.println("  compile index for prefix=" + prefix);
       //}
@@ -879,11 +882,11 @@ public final class BlockTreeTermsWriter extends FieldsConsumer {
       }
     }
 
-    /** 将新的词项放入栈首，并写入新块. */
+    /** Pushes the new term to the top of the stack, and writes new blocks. */
     private void pushTerm(BytesRef text) throws IOException {
       int limit = Math.min(lastTerm.length(), text.length);
 
-      // 寻找最后词项和当前词项之间的通用前缀。
+      // Find common prefix between last term and current term:
       int pos = 0;
       while (pos < limit && lastTerm.byteAt(pos) == text.bytes[text.offset+pos]) {
         pos++;
@@ -891,11 +894,11 @@ public final class BlockTreeTermsWriter extends FieldsConsumer {
 
       // if (DEBUG) System.out.println("  shared=" + pos + "  lastTerm.length=" + lastTerm.length);
 
-      // 现在关闭"过时的"后缀
+      // Close the "abandoned" suffix now:
       for(int i=lastTerm.length()-1;i>=pos;i--) {
 
-        // 栈首有多少条目共享当前后缀
-        //我们关闭
+        // How many items on top of the stack share the current suffix
+        // we are closing:
         int prefixTopSize = pending.size() - prefixStarts[i];
         if (prefixTopSize >= minItemsInBlock) {
           // if (DEBUG) System.out.println("pushTerm i=" + i + " prefixTopSize=" + prefixTopSize + " minItemsInBlock=" + minItemsInBlock);
