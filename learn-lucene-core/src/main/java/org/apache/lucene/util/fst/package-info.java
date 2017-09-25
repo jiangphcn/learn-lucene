@@ -16,23 +16,21 @@
  */
 
 /**
- * Finite state transducers
+ * 有穷状态转换器
  * <p>
- * This package implements <a href="http://en.wikipedia.org/wiki/Finite_state_transducer">
- * Finite State Transducers</a> with the following characteristics:
+ * 该包实现了一个<a href="http://en.wikipedia.org/wiki/Finite_state_transducer">
+ * 有穷状态转换器</a>。包含了以下特性:
  * <ul>
- *    <li>Fast and low memory overhead construction of the minimal FST 
- *        (but inputs must be provided in sorted order)</li>
- *    <li>Low object overhead and quick deserialization (byte[] representation)</li>
- *    <li>{@link org.apache.lucene.util.fst.Util#getByOutput Lookup-by-output} when the 
- *        outputs are in sorted order (e.g., ordinals or file pointers)</li>
- *    <li>Pluggable {@link org.apache.lucene.util.fst.Outputs Outputs} representation</li>
- *    <li>{@link org.apache.lucene.util.fst.Util#shortestPaths N-shortest-paths} search by
- *        weight</li>
- *    <li>Enumerators ({@link org.apache.lucene.util.fst.IntsRefFSTEnum IntsRef} and {@link org.apache.lucene.util.fst.BytesRefFSTEnum BytesRef}) that behave like {@link java.util.SortedMap SortedMap} iterators
+ *    <li>快速、低内存开销构建一个最小FST.(输入必须是有序的)</li>
+ *    <li>低对象开销并且快速反序列化(通过byte数组体现)</li>
+ *    <li>{@link org.apache.lucene.util.fst.Util#getByOutput 通过输出查找}当输出有序时(例如，序数和文件指针)。
+ *    <li>可插拔的{@link org.apache.lucene.util.fst.Outputs 输出组件}</li>
+ *    <li>{@link org.apache.lucene.util.fst.Util#shortestPaths N最短路径} 通过权重搜索</li>
+ *    <li>({@link org.apache.lucene.util.fst.IntsRefFSTEnum IntsRef} 和 {@link org.apache.lucene.util.fst.BytesRefFSTEnum BytesRef}) 两个枚举器，行为类似于{@link java.util.SortedMap SortedMap} 迭代器。
+ *    <li>可选的two-pass压缩(本版本移除该项)</li>
  * </ul>
  * <p>
- * FST Construction example:
+ * 构建FST的示例:
  * <pre class="prettyprint">
  *     // Input values (keys). These must be provided to Builder in Unicode sorted order!
  *     String inputValues[] = {"cat", "dog", "dogs"};
@@ -53,7 +51,7 @@
  *     Long value = Util.get(fst, new BytesRef("dog"));
  *     System.out.println(value); // 7
  * </pre>
- * Retrieval by value:
+ * 通过值来检索:
  * <pre class="prettyprint">
  *     // Only works because outputs are also in sorted order
  *     IntsRef key = Util.getByOutput(fst, 12);
@@ -69,7 +67,7 @@
  *       System.out.println(mapEntry.output);
  *     }
  * </pre>
- * N-shortest paths by weight:
+ * 通过权重的N最短路径:
  * <pre class="prettyprint">
  *     Comparator&lt;Long&gt; comparator = new Comparator&lt;Long&gt;() {
  *       public int compare(Long left, Long right) {
