@@ -28,22 +28,19 @@ import org.apache.lucene.util.fst.FST.INPUT_TYPE; // javadoc
 // build it?
 
 /**
- * Builds a minimal FST (maps an IntsRef term to an arbitrary
- * output) from pre-sorted terms with outputs.  The FST
- * becomes an FSA if you use NoOutputs.  The FST is written
- * on-the-fly into a compact serialized format byte array, which can
- * be saved to / loaded from a Directory or used directly
- * for traversal.  The FST is always finite (no cycles).
  *
- * <p>NOTE: The algorithm is described at
- * http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.24.3698</p>
+ * 根据预排序好的具有输出的词项,构建一个最小FST(在IntsRef词项与任意输出之间做映射)。
+ * 如果没有输出，那么FST就是一个FSA。
+ * FST可以快速写入一个压缩的序列化格式的字节数组，该数组可以保存在目录、从目录中加载，或直接用于遍历。
+ * FST总是有限的(无循环)。
  *
- * <p>The parameterized type T is the output type.  See the
- * subclasses of {@link Outputs}.
+ * <p>NOTE: 算法详情 http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.24.3698</p>
  *
- * <p>FSTs larger than 2.1GB are now possible (as of Lucene
- * 4.2).  FSTs containing more than 2.1B nodes are also now
- * possible, however they cannot be packed.
+ * <p>泛型T是输出类型. 查看{@link Outputs}的子类。
+ *
+ * <p>FSTs 可以大于2.1G(从4.2起)。
+ * 现在，FSTs可以包含超过2.1B个节点，但是无法打包。
+ *
  *
  * @lucene.experimental
  */
@@ -55,13 +52,10 @@ public class Builder<T> {
 
   // private static final boolean DEBUG = true;
 
-  // simplistic pruning: we prune node (and all following
-  // nodes) if less than this number of terms go through it:
+  //简单修剪：当节点的词项数量小于该值，将修剪节点(以及子节点)
   private final int minSuffixCount1;
 
-  // better pruning: we prune node (and all following
-  // nodes) if the prior node has less than this number of
-  // terms go through it:
+  //简单修剪：当前置节点的词项数量小于该值，将修剪节点(以及子节点)
   private final int minSuffixCount2;
 
   private final boolean doShareNonSingletonNodes;
